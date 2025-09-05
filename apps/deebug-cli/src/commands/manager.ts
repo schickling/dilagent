@@ -3,6 +3,7 @@ import * as Cli from '@effect/cli'
 import { Prompt } from '@effect/cli'
 import { FileSystem } from '@effect/platform'
 import { Console, Effect, Fiber, Layer, Option } from 'effect'
+import { makeExperimentInstructions } from '../prompts.ts'
 import { ClaudeService } from '../services/claude.ts'
 import { createMcpServerLayer } from '../services/mcp-server.js'
 import { StateStore } from '../services/state-store.js'
@@ -139,34 +140,29 @@ export const managerCommand = Cli.Command.make(
     workingDirectory: Cli.Options.directory('working-directory'),
     prompt: Cli.Options.text('prompt'),
   },
-  ({ port: portOption, workingDirectory, prompt }) =>
-    Effect.gen(function* () {
-      const actualPort = Option.getOrElse(portOption, () => 3000)
+  ({ port: portOption, workingDirectory, prompt }) => {
+    const actualPort = Option.getOrElse(portOption, () => 3000)
+    return Effect.gen(function* () {
       console.log('manager', actualPort, workingDirectory, prompt)
 
       const resolvedWorkingDirectory = path.resolve(workingDirectory)
 
       yield* gatherInitialData
 
-      yield* runExperiments({ resolvedWorkingDirectory, port: actualPort })
+      // yield* runExperiments({ resolvedWorkingDirectory, port: actualPort })
 
       yield* Console.log(`Starting MCP server on port ${actualPort}...`)
       yield* Console.log(`MCP endpoint: http://localhost:${actualPort}/mcp`)
       yield* Console.log(`Health check: http://localhost:${actualPort}/health`)
       yield* Console.log('')
 
-      // Create server layer (without StateStore, which will be provided below)
-      const serverLayer = createMcpServerLayer(actualPort)
-
-      // Launch server in background (StateStore provided from outer scope)
-      const serverFiber = yield* Layer.launch(serverLayer).pipe(Effect.fork)
-
       // Run REPL (StateStore provided from outer scope)
-      yield* runRepl.pipe(Effect.ensuring(Fiber.interrupt(serverFiber)))
+      yield* runRepl
     }).pipe(
       // Provide StateStore.Live once at the top level so it's shared by both server and REPL
-      Effect.provide(StateStore.Live),
-    ),
+      Effect.provide(createMcpServerLayer(actualPort)),
+    )
+  },
 )
 
 const gatherInitialData = Effect.gen(function* () {})
@@ -187,59 +183,3 @@ const runExperiments = ({ resolvedWorkingDirectory, port }: { resolvedWorkingDir
 
 const synthesizePatch = Effect.gen(function* () {})
 const validatePatch = Effect.gen(function* () {})
-
-const generateHypothesisIdeasPrompt = ({ problemPrompt }: { problemPrompt: string }) => `\
-Study the following problem and generate a list of potential hypotheses for the root cause.
-We will then run experiments to test each hypothesis in depth. Order the hypotheses by likelihood of being the root cause.
-
-For each hypothesis provide a:
-- Title
-- Description
-- Reproduction Steps
-`
-
-const makeExperimentInstructions = `\
-You are an expert debugging assistant. Your job is to analyze and diagnose the root cause for the given problem.
-
-## Goal
-
-1. Identify the root cause of the problem
-2. 
-
-## Strategies
-
-- Test loop: Create a targeted test loop that's fast to run and focused on the hypothesis
-- Isolate: create a minimal reproduction of the problem
-  - if your minimal reproduction attempt doesn't work, bisect and compare with the non-minimal reproduction until your minimal setup reproduces the problem
-- Logging: add log statements
-- Research: do some web research (e.g. existing issues on GitHub) to build a deeper understanding of the problem
-
-## Acceptance Criteria
-
-- The root cause is identified
-- The root cause is reproducible
-- The root cause is documented in the \`report.md\` file
-- The root cause has been counter-tested with counter hypothesis
-`
-
-const makeExperimentContext = ({
-  problemTitle,
-  problemDescription,
-  experimentInstructions,
-}: {
-  problemTitle: string
-  problemDescription: string
-  experimentInstructions: string
-}) => `\
-## Instructions
-
-Follow the instructions provided in the \`instructions.md\` file.
-
-## Problem: ${problemTitle}
-
-${problemDescription}
-
-## Experiment
-
-${experimentInstructions}
-`

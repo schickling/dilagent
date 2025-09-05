@@ -9,20 +9,14 @@ export interface StateStoreService {
   readonly keys: () => Effect.Effect<Array<string>>
 }
 
-export class StateStore extends Context.Tag('StateStore')<
-  StateStore,
-  StateStoreService
->() {
+export class StateStore extends Context.Tag('StateStore')<StateStore, StateStoreService>() {
   static readonly Live = Layer.effect(
     StateStore,
     Effect.gen(function* () {
       const store = yield* Ref.make<Map<string, string>>(new Map())
 
       return StateStore.of({
-        get: (key: string) =>
-          Ref.get(store).pipe(
-            Effect.map((map) => map.get(key))
-          ),
+        get: (key: string) => Ref.get(store).pipe(Effect.map((map) => map.get(key))),
 
         set: (key: string, value: string) =>
           Ref.update(store, (map) => {
@@ -39,20 +33,12 @@ export class StateStore extends Context.Tag('StateStore')<
           }),
 
         list: () =>
-          Ref.get(store).pipe(
-            Effect.map((map) =>
-              Array.from(map.entries()).map(([key, value]) => ({ key, value }))
-            )
-          ),
+          Ref.get(store).pipe(Effect.map((map) => Array.from(map.entries()).map(([key, value]) => ({ key, value })))),
 
-        clear: () =>
-          Ref.set(store, new Map()),
+        clear: () => Ref.set(store, new Map()),
 
-        keys: () =>
-          Ref.get(store).pipe(
-            Effect.map((map) => Array.from(map.keys()))
-          )
+        keys: () => Ref.get(store).pipe(Effect.map((map) => Array.from(map.keys()))),
       })
-    })
+    }),
   )
 }
