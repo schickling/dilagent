@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kvStore": {
+      "type": "http",
+      "url": "http://localhost:3002/mcp"
+    }
+  }
+}

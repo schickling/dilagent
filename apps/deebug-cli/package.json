@@ -12,6 +12,7 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@effect/ai": "^0.26.1",
     "@effect/cli": "^0.69.2",
     "@effect/platform": "^0.90.7",
     "@effect/platform-node": "^0.96.1",

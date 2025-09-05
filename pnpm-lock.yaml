@@ -20,6 +20,9 @@ importers:
 
   apps/deebug-cli:
     dependencies:
+      '@effect/ai':
+        specifier: ^0.26.1
+        version: 0.26.1(@effect/experimental@0.54.6(@effect/platform@0.90.7(effect@3.17.13))(effect@3.17.13))(@effect/platform@0.90.7(effect@3.17.13))(@effect/rpc@0.69.2(@effect/platform@0.90.7(effect@3.17.13))(effect@3.17.13))(effect@3.17.13)
       '@effect/cli':
         specifier: ^0.69.2
         version: 0.69.2(@effect/platform@0.90.7(effect@3.17.13))(@effect/printer-ansi@0.45.0(@effect/typeclass@0.36.0(effect@3.17.13))(effect@3.17.13))(@effect/printer@0.45.0(@effect/typeclass@0.36.0(effect@3.17.13))(effect@3.17.13))(effect@3.17.13)
@@ -103,6 +106,14 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [win32]
+
+  '@effect/ai@0.26.1':
+    resolution: {integrity: sha512-FisoFF5ghyvPx3975OFzCPlzG3UEKzY7RHdOxdmrPTeoM8/5NXi0oPGKyGpHjJmC/6efhhlwmGfRT4BTtuwTdg==}
+    peerDependencies:
+      '@effect/experimental': ^0.54.6
+      '@effect/platform': ^0.90.6
+      '@effect/rpc': ^0.69.2
+      effect: ^3.17.11
 
   '@effect/cli@0.69.2':
     resolution: {integrity: sha512-1xYfEzW5f6jGWDb6V6DWTsWbtdp8DgQcchbewnCwKOXnJzF5VsTcfo4lYM4TXk/RAHA1owyq7OaEmeZ+qIt1/w==}
@@ -953,6 +964,14 @@ snapshots:
 
   '@biomejs/cli-win32-x64@2.2.2':
     optional: true
+
+  '@effect/ai@0.26.1(@effect/experimental@0.54.6(@effect/platform@0.90.7(effect@3.17.13))(effect@3.17.13))(@effect/platform@0.90.7(effect@3.17.13))(@effect/rpc@0.69.2(@effect/platform@0.90.7(effect@3.17.13))(effect@3.17.13))(effect@3.17.13)':
+    dependencies:
+      '@effect/experimental': 0.54.6(@effect/platform@0.90.7(effect@3.17.13))(effect@3.17.13)
+      '@effect/platform': 0.90.7(effect@3.17.13)
+      '@effect/rpc': 0.69.2(@effect/platform@0.90.7(effect@3.17.13))(effect@3.17.13)
+      effect: 3.17.13
+      find-my-way-ts: 0.1.6
 
   '@effect/cli@0.69.2(@effect/platform@0.90.7(effect@3.17.13))(@effect/printer-ansi@0.45.0(@effect/typeclass@0.36.0(effect@3.17.13))(effect@3.17.13))(@effect/printer@0.45.0(@effect/typeclass@0.36.0(effect@3.17.13))(effect@3.17.13))(effect@3.17.13)':
     dependencies:

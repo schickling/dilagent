@@ -3,12 +3,14 @@
 import * as Cli from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { Effect } from 'effect'
-import { experimentCommand } from './commands/experiment.ts'
-import { managerCommand } from './commands/manager.ts'
-import { ClaudeService } from './services/claude.ts'
+import { experimentCommand } from './commands/experiment.js'
+import { managerCommand } from './commands/manager.js'
+import { testMcpCommand } from './commands/test-mcp.js'
+import { ClaudeService } from './services/claude.js'
+import { StateStore } from './services/state-store.js'
 
 const mainCommand = Cli.Command.make('deebug', {}).pipe(
-  Cli.Command.withSubcommands([experimentCommand, managerCommand]),
+  Cli.Command.withSubcommands([experimentCommand, managerCommand, testMcpCommand]),
 )
 
 const cli = Cli.Command.run(mainCommand, {
@@ -18,6 +20,10 @@ const cli = Cli.Command.run(mainCommand, {
 
 const main = Effect.gen(function* () {
   return yield* cli(process.argv)
-}).pipe(Effect.provide(NodeContext.layer), Effect.provide(ClaudeService.Default))
+}).pipe(
+Effect.provide(StateStore.Live),
+Effect.provide(NodeContext.layer),
+Effect.provide(ClaudeService.Default)
+)
 
 NodeRuntime.runMain(main)
