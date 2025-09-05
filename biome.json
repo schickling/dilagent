@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/dist", "!**/node_modules", "!**/tmp", "!**/.direnv", "!**/result"]
+    "includes": ["**", "!**/dist", "!**/node_modules", "!**/tmp", "!**/.direnv", "!**/result", "!test-env"]
   },
   "formatter": {
     "enabled": true,
