@@ -65,7 +65,7 @@ export const runRepl = Effect.gen(function* () {
         } else {
           const key = args[0]!
           const value = args.slice(1).join(' ')
-          yield* store.set(key, value)
+          // yield* store.set(key, value)
           yield* Console.log(`Set ${key} = ${value}`)
         }
         break
@@ -91,7 +91,7 @@ export const runRepl = Effect.gen(function* () {
         } else {
           yield* Console.log('State store entries:')
           for (const { key, value } of entries) {
-            yield* Console.log(`  ${key} = ${value}`)
+            yield* Console.log(`  ${key} = ${JSON.stringify(value)}`)
           }
         }
         break

@@ -1,5 +1,6 @@
 import { AiTool, AiToolkit, McpServer } from '@effect/ai'
 import { Console, Effect, Layer, Schema } from 'effect'
+import { ExperimentResult } from '../schema.ts'
 import { StateStore } from './state-store.js'
 
 const GetTool = AiTool.make('state.get', {
@@ -9,7 +10,7 @@ const GetTool = AiTool.make('state.get', {
       description: 'The key to retrieve',
     }),
   },
-  success: Schema.Union(Schema.String, Schema.Undefined),
+  success: Schema.Union(ExperimentResult, Schema.Undefined),
 })
 
 const SetTool = AiTool.make('state.set', {
@@ -18,9 +19,7 @@ const SetTool = AiTool.make('state.set', {
     key: Schema.String.annotations({
       description: 'The key to set',
     }),
-    value: Schema.String.annotations({
-      description: 'The value to store',
-    }),
+    value: ExperimentResult,
   },
   success: Schema.String,
 })
@@ -41,7 +40,7 @@ const ListTool = AiTool.make('state.list', {
     entries: Schema.Array(
       Schema.Struct({
         key: Schema.String,
-        value: Schema.String,
+        value: ExperimentResult,
       }),
     ),
   }),

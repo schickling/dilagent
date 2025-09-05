@@ -1,44 +1,40 @@
-import { Context, Effect, Layer, Ref } from 'effect'
+import { Effect, Ref } from 'effect'
+import { ExperimentResult } from '../schema.ts'
 
-export interface StateStoreService {
-  readonly get: (key: string) => Effect.Effect<string | undefined>
-  readonly set: (key: string, value: string) => Effect.Effect<void>
-  readonly delete: (key: string) => Effect.Effect<boolean>
-  readonly list: () => Effect.Effect<Array<{ key: string; value: string }>>
-  readonly clear: () => Effect.Effect<void>
-  readonly keys: () => Effect.Effect<Array<string>>
-}
+const schema = ExperimentResult
 
-export class StateStore extends Context.Tag('StateStore')<StateStore, StateStoreService>() {
-  static readonly Live = Layer.effect(
-    StateStore,
-    Effect.gen(function* () {
-      const store = yield* Ref.make<Map<string, string>>(new Map())
+export class StateStore extends Effect.Service<StateStore>()('StateStore', {
+  effect: Effect.gen(function* () {
+    const store = yield* Ref.make<Map<string, typeof schema.Type>>(new Map())
 
-      return StateStore.of({
-        get: (key: string) => Ref.get(store).pipe(Effect.map((map) => map.get(key))),
+    const get = (key: string) =>
+      Ref.get(store).pipe(
+        Effect.map((map) => map.get(key)),
+        // Effect.andThen(Schema.validate(schema)),
+      )
 
-        set: (key: string, value: string) =>
-          Ref.update(store, (map) => {
-            const newMap = new Map(map)
-            newMap.set(key, value)
-            return newMap
-          }),
-
-        delete: (key: string) =>
-          Ref.modify(store, (map) => {
-            const newMap = new Map(map)
-            const existed = newMap.delete(key)
-            return [existed, newMap]
-          }),
-
-        list: () =>
-          Ref.get(store).pipe(Effect.map((map) => Array.from(map.entries()).map(([key, value]) => ({ key, value })))),
-
-        clear: () => Ref.set(store, new Map()),
-
-        keys: () => Ref.get(store).pipe(Effect.map((map) => Array.from(map.keys()))),
+    const set = (key: string, value: typeof schema.Type) =>
+      Ref.update(store, (map) => {
+        const newMap = new Map<string, typeof schema.Type>(map)
+        newMap.set(key, value)
+        return newMap
       })
-    }),
-  )
-}
+
+    const deleteKey = (key: string) =>
+      Ref.modify(store, (map) => {
+        const newMap = new Map(map)
+        const existed = newMap.delete(key)
+        return [existed, newMap]
+      })
+
+    const list = () =>
+      Ref.get(store).pipe(Effect.map((map) => Array.from(map.entries()).map(([key, value]) => ({ key, value }))))
+
+    const clear = () => Ref.set(store, new Map())
+
+    const keys = () => Ref.get(store).pipe(Effect.map((map) => Array.from(map.keys())))
+
+    return { get, set, delete: deleteKey, list, clear, keys } as const
+  }),
+  dependencies: [],
+}) {}

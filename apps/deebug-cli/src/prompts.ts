@@ -36,11 +36,15 @@ export const makeExperimentContext = ({
   problemTitle,
   problemDescription,
   experimentInstructions,
+  experimentId,
 }: {
   problemTitle: string
   problemDescription: string
   experimentInstructions: string
+  experimentId: string
 }) => `\
+## Experiment: \`${experimentId}\`
+
 ## Instructions
 
 Follow the instructions provided in the \`instructions.md\` file.
