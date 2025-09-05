@@ -16,6 +16,8 @@ Principled, structured debugging and root cause analysis
     - inconclusive
   - status update
 - instructions markdown file:
+- `settings.json` file
+  - permissions
 
 ### `manager`
 
