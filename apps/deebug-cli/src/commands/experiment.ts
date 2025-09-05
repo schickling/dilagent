@@ -1,7 +1,7 @@
 import * as Cli from '@effect/cli'
 import { Command } from '@effect/platform'
 import { Effect } from 'effect'
-import { ClaudeService } from '../services/claude.js'
+import { ClaudeService } from '../services/claude.ts'
 
 export const experimentCommand = Cli.Command.make(
   'experiment',

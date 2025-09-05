@@ -2,7 +2,7 @@ import { Command } from '@effect/platform'
 import type * as CommandExecutor from '@effect/platform/CommandExecutor'
 import type { PlatformError } from '@effect/platform/Error'
 import { Effect, Schema } from 'effect'
-import { logDuration } from '../utils/Effect.js'
+import { logDuration } from '../utils/Effect.ts'
 
 /**
  * Claude CLI response schema

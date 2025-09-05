@@ -1,7 +1,7 @@
 import { NodeContext } from '@effect/platform-node'
 import { Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
-import { ClaudeService } from './claude.js'
+import { ClaudeService } from './claude.ts'
 
 describe('ClaudeService', () => {
   const runPromise = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
