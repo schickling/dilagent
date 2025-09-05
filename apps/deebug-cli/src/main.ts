@@ -2,7 +2,7 @@
 
 import * as Cli from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
-import { Effect, Layer } from 'effect'
+import { Effect, Layer, Logger } from 'effect'
 import { experimentCommand } from './commands/experiment.ts'
 import { managerCommand } from './commands/manager.ts'
 import { StateStore } from './services/state-store.ts'
@@ -17,7 +17,7 @@ const cli = Cli.Command.run(mainCommand, {
 })
 
 const main = cli(process.argv).pipe(
-  Effect.provide(Layer.mergeAll(NodeContext.layer, StateStore.Default)),
+  Effect.provide(Layer.mergeAll(NodeContext.layer, StateStore.Default, Logger.pretty)),
   Effect.scoped,
 )
 

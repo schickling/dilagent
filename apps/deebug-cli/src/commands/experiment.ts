@@ -46,7 +46,7 @@ export const experimentCommand = Cli.Command.make(
             useBestModel: true,
             workingDir: resolvedWorktree,
             mcpConfig,
-            sandboxMode: 'danger-full-access',
+            skipPermissions: true,
           },
         )
         .pipe(Stream.tap(Effect.log), Stream.runDrain)

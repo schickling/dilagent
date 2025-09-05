@@ -21,10 +21,23 @@ export const ExperimentStatusUpdate = Schema.TaggedStruct('ExperimentStatusUpdat
 
 export const ExperimentInput = Schema.TaggedStruct('ExperimentInput', {
   experimentId: Schema.String.annotations({ description: 'Format: E001, E002, ...' }),
-  problemTitle: Schema.String,
-  problemDescription: Schema.String,
-  experimentApproach: Schema.String,
-  reproductionSteps: Schema.Array(Schema.String),
+  problemTitle: Schema.String.annotations({ description: 'A short title of the problem' }),
+  problemDescription: Schema.String.annotations({ description: 'A short description of the problem' }),
+  files: Schema.Array(Schema.String).annotations({ description: 'The files that are relevant to the problem' }),
+  problemDetails: Schema.String.annotations({
+    description: 'A detailed multi-paragraph description of the problem with all relevant information',
+  }),
+  experimentApproach: Schema.String.annotations({
+    description: 'A detailed description of the experiment approach to test the hypothesis.',
+  }),
+  reproductionSteps: Schema.Array(
+    Schema.String.annotations({
+      description: 'A detailed description of the reproduction steps to test the hypothesis.',
+    }),
+  ),
+  observedBehavior: Schema.String.annotations({
+    description: 'A detailed description of the observed behavior of the problem including errors, logs, etc.',
+  }),
 })
 
 export type ExperimentInput = typeof ExperimentInput.Type

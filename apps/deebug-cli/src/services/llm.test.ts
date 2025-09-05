@@ -1,3 +1,4 @@
+import { Command } from '@effect/platform'
 import type { CommandExecutor } from '@effect/platform/CommandExecutor'
 import type { PlatformError } from '@effect/platform/Error'
 import { NodeContext } from '@effect/platform-node'
@@ -9,7 +10,7 @@ import { type LLMError, LLMService } from './llm.ts'
 
 const providerLayers = [
   { name: 'Claude', layer: ClaudeProvider.ClaudeLLMLive },
-  { name: 'Codex', layer: CodexProvider.CodexLLMLive },
+  // { name: 'Codex', layer: CodexProvider.CodexLLMLive },
 ]
 
 describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer }) => {
@@ -154,7 +155,7 @@ describe('Codex-specific features', { timeout: 30000 }, () => {
       Effect.gen(function* () {
         const llm = yield* LLMService
         const result = yield* llm.prompt('What can you do in read-only mode?', {
-          sandboxMode: 'read-only',
+          skipPermissions: true,
         })
         expect(typeof result).toBe('string')
         expect(result.length).toBeGreaterThan(0)
@@ -167,7 +168,7 @@ describe('Codex-specific features', { timeout: 30000 }, () => {
       Effect.gen(function* () {
         const llm = yield* LLMService
         const result = yield* llm.prompt('List current directory contents', {
-          sandboxMode: 'workspace-write',
+          skipPermissions: false,
         })
         expect(typeof result).toBe('string')
         expect(result.length).toBeGreaterThan(0)

@@ -1,6 +1,6 @@
 import type * as CommandExecutor from '@effect/platform/CommandExecutor'
 import type { PlatformError } from '@effect/platform/Error'
-import { Context, Effect, Schema, Stream } from 'effect'
+import { Context, type Effect, Schema, type Stream } from 'effect'
 
 /**
  * Common error for LLM service failures
@@ -15,12 +15,15 @@ export class LLMError extends Schema.TaggedError<LLMError>()('LLMError', {
  * MCP (Model Context Protocol) configuration
  */
 export interface MCPConfig {
-  mcpServers?: Record<string, {
-    type: 'http' | 'websocket' | 'stdio'
-    url?: string
-    command?: string
-    args?: string[]
-  }>
+  mcpServers?: Record<
+    string,
+    {
+      type: 'http' | 'websocket' | 'stdio'
+      url?: string
+      command?: string
+      args?: string[]
+    }
+  >
   [key: string]: unknown
 }
 
@@ -34,17 +37,17 @@ export interface LLMOptions {
   systemPrompt?: string
   /** Working directory for execution */
   workingDir?: string
-  /** Sandbox mode for code execution (Codex-specific, ignored by Claude) */
-  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  /** Skip permissions check  */
+  skipPermissions?: boolean
   /** Enable verbose output */
   verbose?: boolean
-  /** MCP configuration (Codex-specific, Claude uses --mcp-config flag) */
+  /** MCP configuration */
   mcpConfig?: MCPConfig
 }
 
 /**
  * Unified LLM service interface
- * 
+ *
  * This interface abstracts over different LLM CLI tools (Claude, Codex, etc.)
  * providing a consistent API for prompt execution.
  */

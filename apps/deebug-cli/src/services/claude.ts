@@ -35,6 +35,8 @@ const buildCommand = (
     systemPrompt?: string
     verbose?: boolean
     mcpConfig?: MCPConfig
+    workingDir?: string
+    skipPermissions?: boolean
   } = {},
 ) => {
   const args = ['--print']
@@ -55,12 +57,22 @@ const buildCommand = (
   }
 
   if (options.mcpConfig) {
-    args.push('--mcp-config', JSON.stringify(options.mcpConfig))
+    args.push('--mcp-config', `'${JSON.stringify(options.mcpConfig)}'`)
   }
 
-  // Use bash to pipe input to Claude CLI
-  const bashCommand = `echo ${JSON.stringify(input)} | claude ${args.join(' ')}`
-  return Command.make('bash', '-c', bashCommand)
+  if (options.skipPermissions) {
+    args.push('--dangerously-skip-permissions')
+  }
+
+  console.log('claude command', `echo ${JSON.stringify(input)} | claude ${args.join(' ')}`)
+
+  const inputEcho = Command.make('echo', JSON.stringify(input))
+
+  return inputEcho.pipe(
+    Command.pipeTo(Command.make('claude', ...args)),
+    Command.runInShell(true),
+    Command.workingDirectory(options.workingDir ?? process.cwd()),
+  )
 }
 
 /**
@@ -75,11 +87,9 @@ const prompt = (
     const model: ClaudeModel = options.useBestModel ? 'Opus' : 'Sonnet'
 
     const command = buildCommand(input, {
+      ...options,
       model,
       outputFormat: 'json',
-      ...(options.systemPrompt && { systemPrompt: options.systemPrompt }),
-      ...(options.verbose && { verbose: options.verbose }),
-      ...(options.mcpConfig && { mcpConfig: options.mcpConfig }),
     })
 
     const output = yield* Command.string(command).pipe(Effect.withSpan('claude.string'))
@@ -104,15 +114,17 @@ const prompt = (
     )
 
     if (validatedResponse.is_error) {
-      return yield* Effect.fail(
-        new LLMError({
-          cause: new Error('Claude returned an error response'),
-          message: `Claude error: ${validatedResponse.result}`,
-        }),
-      )
+      return yield* new LLMError({
+        cause: new Error('Claude returned an error response'),
+        message: `Claude error: ${validatedResponse.result}`,
+      })
     }
 
-    return validatedResponse.result
+    // Claude CLI may wrap JSON in markdown code blocks even with tool usage
+    // Extract JSON if it's wrapped in ```json...``` 
+    const result = validatedResponse.result.trim()
+    const jsonMatch = result.match(/^```json\s*\n([\s\S]*?)\n```$/)
+    return jsonMatch?.[1]?.trim() ?? result
   }).pipe(Effect.withSpan('claude.prompt'), logDuration('claude.prompt'))
 
 /**
@@ -127,10 +139,9 @@ const promptStream = (
 
   return Command.streamLines(
     buildCommand(input, {
+      ...options,
       model,
       outputFormat: 'stream-json',
-      ...(options.systemPrompt && { systemPrompt: options.systemPrompt }),
-      ...(options.verbose && { verbose: options.verbose }),
     }),
   ).pipe(
     Stream.withSpan('claude.promptStream'),

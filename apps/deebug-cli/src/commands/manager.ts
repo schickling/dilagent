@@ -1,12 +1,12 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { Command, FileSystem } from '@effect/platform'
-import { Effect, Option, Schema } from 'effect'
+import { Effect, Layer, Option, Schema } from 'effect'
 import {
   experimentInstructions,
   generateHypothesisIdeasPrompt,
-  jsonOnlySystemPrompt,
   makeExperimentContext,
+  toolEnabledSystemPrompt,
 } from '../prompts.ts'
 import { runRepl } from '../repl.ts'
 import { type ExperimentInput, GenerateExperimentsInputResult } from '../schema.ts'
@@ -30,8 +30,9 @@ export const managerCommand = Cli.Command.make(
     prompt: Cli.Options.text('prompt'),
     llm: Cli.Options.choice('llm', ['claude', 'codex']),
     cwdOption: Cli.Options.directory('cwd').pipe(Cli.Options.optional),
+    replOption: Cli.Options.boolean('repl').pipe(Cli.Options.optional),
   },
-  ({ portOption, contextDirectory, workingDirectory, prompt, llm, cwdOption }) =>
+  ({ portOption, contextDirectory, workingDirectory, prompt, llm, cwdOption, replOption }) =>
     Effect.gen(function* () {
       const fallbackPort = yield* getFreePort
       const port = Option.getOrElse(portOption, () => fallbackPort)
@@ -45,38 +46,40 @@ export const managerCommand = Cli.Command.make(
         yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
 
         yield* Effect.log(`Generating experiments...`)
-        const experiments = yield* generateExperiments({ problemPrompt: prompt, resolvedContextDirectory })
+        const experiments = yield* generateExperiments({
+          problemPrompt: prompt,
+          resolvedContextDirectory,
+          resolvedWorkingDirectory,
+        })
 
         yield* Effect.log(
           `Running ${experiments.length} experiments: \n${experiments.map((e) => `- ${e.experimentId}: ${e.problemTitle}`).join('\n')}`,
         )
 
-        yield* Effect.forEach(
+        const fiber = yield* Effect.forEach(
           experiments,
-          Effect.fn(function* (experiment) {
-            yield* prepareExperiment({ experiment, resolvedWorkingDirectory, resolvedContextDirectory })
-            yield* runExperiment({
+          (experiment) =>
+            runExperiment({
               resolvedWorkingDirectory,
               resolvedContextDirectory,
-              port: port,
+              port,
               experiment,
               llm,
               cwd,
-            })
-          }),
+            }),
           { concurrency: 4 },
         ).pipe(Effect.tapErrorCause(Effect.logError), Effect.forkScoped)
 
         yield* Effect.log(`Starting MCP server on port ${port}...`)
         yield* Effect.log(`MCP endpoint: http://localhost:${port}/mcp`)
-        yield* Effect.log(`Health check: http://localhost:${port}/health`)
-        yield* Effect.log('')
 
-        // Run REPL (StateStore provided from outer scope)
-        yield* runRepl
+        if (replOption._tag === 'Some' && replOption.value) {
+          yield* runRepl
+        }
+
+        yield* fiber
       }).pipe(
-        Effect.provide(createMcpServerLayer(port)),
-        Effect.provide(llm === 'claude' ? ClaudeLLMLive : CodexLLMLive),
+        Effect.provide(Layer.mergeAll(createMcpServerLayer(port), llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
       )
     }),
 )
@@ -84,21 +87,39 @@ export const managerCommand = Cli.Command.make(
 const generateExperiments = ({
   problemPrompt,
   resolvedContextDirectory,
+  resolvedWorkingDirectory,
 }: {
   problemPrompt: string
   resolvedContextDirectory: string
+  resolvedWorkingDirectory: string
 }) =>
   Effect.gen(function* () {
     const llm = yield* LLMService
 
+    const fs = yield* FileSystem.FileSystem
+
+    yield* fs.makeDirectory(resolvedWorkingDirectory, { recursive: true })
+
+    const prompt = generateHypothesisIdeasPrompt({ 
+      problemPrompt, 
+      resolvedContextDirectory,
+    })
+
+    yield* fs.writeFileString(path.join(resolvedWorkingDirectory, 'hypothesis-generation.md'), prompt)
+
+    yield* Effect.log(`Using tool-enabled hypothesis generation`)
+
     const experimentInputResult = yield* llm
-      .prompt(generateHypothesisIdeasPrompt({ problemPrompt, resolvedContextDirectory }), {
-        systemPrompt: jsonOnlySystemPrompt,
+      .prompt(prompt, {
+        systemPrompt: toolEnabledSystemPrompt,
         useBestModel: true,
-        sandboxMode: 'danger-full-access',
+        skipPermissions: true,
         workingDir: resolvedContextDirectory,
       })
-      .pipe(Effect.andThen(Schema.decode(Schema.parseJson(GenerateExperimentsInputResult))))
+      .pipe(
+        Effect.timeout('5 minutes'),
+        Effect.andThen(Schema.decode(Schema.parseJson(GenerateExperimentsInputResult)))
+      )
 
     if (experimentInputResult._tag === 'Error') {
       return yield* Effect.die(experimentInputResult.error)
@@ -120,7 +141,10 @@ const prepareExperiment = ({
     const fs = yield* FileSystem.FileSystem
     const worktree = path.join(resolvedWorkingDirectory, experiment.experimentId)
 
-    yield* fs.makeDirectory(worktree, { recursive: true })
+    // Copy the context directory as the worktree
+    yield* Command.make('cp', '-r', resolvedContextDirectory, worktree).pipe(Command.string)
+
+    // yield* fs.makeDirectory(worktree, { recursive: true })
 
     yield* fs.writeFileString(path.join(worktree, 'instructions.md'), experimentInstructions)
     yield* fs.writeFileString(
@@ -129,9 +153,6 @@ const prepareExperiment = ({
     )
 
     yield* fs.writeFileString(path.join(worktree, 'report.md'), 'TODO: Create report here')
-
-    // Copy all contents of resolvedContextDirectory into worktree, not the directory itself
-    yield* Command.make('cp', '-r', path.join(resolvedContextDirectory, '.'), worktree).pipe(Command.string)
   }).pipe(Effect.withSpan('prepareExperiment'))
 
 const runExperiment = ({

@@ -67,7 +67,7 @@ const buildCommand = (
 
     // MCP configuration support via --config flag
     if (options.mcpConfig) {
-      args.push('--config', JSON.stringify(options.mcpConfig))
+      args.push('--config', `'${JSON.stringify(options.mcpConfig)}'`)
     }
 
     // Auto-detect git repo and add skip flag if needed
@@ -80,7 +80,7 @@ const buildCommand = (
     // Add the prompt as the last argument
     args.push(prompt)
 
-    return Command.make('codex', ...args)
+    return Command.make('codex', ...args).pipe(Command.workingDirectory(options.workingDir ?? process.cwd()))
   })
 
 /**
@@ -93,7 +93,7 @@ const prompt = (
   Effect.gen(function* () {
     // Map LLM options to Codex-specific options
     const model: CodexModel = options.useBestModel ? 'gpt-5-high' : 'gpt-5-medium'
-    const sandboxMode: CodexSandboxMode = options.sandboxMode ?? 'read-only'
+    const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
     const command = yield* buildCommand(input, {
       model,
@@ -169,7 +169,7 @@ const promptStream = (
     Effect.gen(function* () {
       // Map LLM options to Codex-specific options
       const model: CodexModel = options.useBestModel ? 'gpt-5-high' : 'gpt-5-medium'
-      const sandboxMode: CodexSandboxMode = options.sandboxMode ?? 'read-only'
+      const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
       return yield* buildCommand(input, {
         model,
