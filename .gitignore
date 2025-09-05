@@ -1,0 +1,19 @@
+# General
+.DS_Store
+*.log
+tmp
+
+# Node.js
+node_modules
+
+# Nix
+result
+.direnv
+
+# TypeScript
+*.tsbuildinfo
+dist
+build
+
+# Environment variables (local/sensitive data)
+.envrc.local
