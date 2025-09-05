@@ -18,3 +18,21 @@ export const ExperimentStatusUpdate = Schema.TaggedStruct('ExperimentStatusUpdat
   experimentId: Schema.String,
   status: ExperimentResult,
 })
+
+export const ExperimentInput = Schema.TaggedStruct('ExperimentInput', {
+  experimentId: Schema.String.annotations({ description: 'Format: E001, E002, ...' }),
+  problemTitle: Schema.String,
+  problemDescription: Schema.String,
+  reproductionSteps: Schema.String,
+})
+
+export type ExperimentInput = typeof ExperimentInput.Type
+
+export const GenerateExperimentsInputResult = Schema.Union(
+  Schema.TaggedStruct('Success', {
+    experiments: Schema.Array(ExperimentInput),
+  }),
+  Schema.TaggedStruct('Error', {
+    error: Schema.String,
+  }),
+)

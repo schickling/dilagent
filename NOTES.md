@@ -50,3 +50,4 @@ Principled, structured debugging and root cause analysis
 ## Other notes
 
 - In the future we might want a manager of managers (command `supervisor`)
+- Live chart of probability of each hypothesis to track over time

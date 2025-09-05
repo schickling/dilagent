@@ -11,6 +11,7 @@
     "typecheck": "tsc --build tsconfig.all.json"
   },
   "devDependencies": {
+    "@openai/codex": "^0.29.0",
     "@biomejs/biome": "^2.2.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

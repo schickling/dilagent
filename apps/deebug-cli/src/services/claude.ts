@@ -43,7 +43,7 @@ export class ClaudeService extends Effect.Service<ClaudeService>()('ClaudeServic
      */
     const buildCommand = (
       input: string,
-      options: { model?: ClaudeModel; extraArgs?: string[]; outputFormat?: 'json' | 'stream-json' } = {},
+      options: { model?: ClaudeModel; extraArgs?: string[]; outputFormat?: 'json' | 'stream-json'; systemPrompt?: string } = {},
     ) => {
       const args = ['--print']
 
@@ -58,13 +58,16 @@ export class ClaudeService extends Effect.Service<ClaudeService>()('ClaudeServic
         }
       }
 
+      if (options.systemPrompt) {
+        args.push('--append-system-prompt', JSON.stringify(options.systemPrompt))
+      }
+
       if (options.extraArgs) {
         args.push(...options.extraArgs)
       }
 
       // Use bash to pipe input to Claude CLI
       const bashCommand = `echo ${JSON.stringify(input)} | claude ${args.join(' ')}`
-      console.log('bashCommand', bashCommand)
       return Command.make('bash', '-c', bashCommand)
     }
 
@@ -73,7 +76,7 @@ export class ClaudeService extends Effect.Service<ClaudeService>()('ClaudeServic
      */
     const prompt = (
       input: string,
-      options: { model?: ClaudeModel; extraArgs?: string[] } = {},
+      options: { model?: ClaudeModel; extraArgs?: string[]; systemPrompt?: string } = {},
     ): Effect.Effect<string, ClaudeError | PlatformError, CommandExecutor.CommandExecutor> =>
       Effect.gen(function* () {
         const command = buildCommand(input, { ...options, outputFormat: 'json' })
@@ -116,7 +119,7 @@ export class ClaudeService extends Effect.Service<ClaudeService>()('ClaudeServic
      */
     const promptStream = (
       input: string,
-      options: { model?: ClaudeModel; extraArgs?: string[] } = {},
+      options: { model?: ClaudeModel; extraArgs?: string[]; systemPrompt?: string } = {},
     ): Stream.Stream<ClaudeCodeMessage, ClaudeError | PlatformError, CommandExecutor.CommandExecutor> =>
       Command.streamLines(buildCommand(input, { ...options, outputFormat: 'stream-json' })).pipe(
         Stream.map((_) => JSON.parse(_) as ClaudeCodeMessage),

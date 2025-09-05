@@ -19,6 +19,7 @@ const cli = Cli.Command.run(mainCommand, {
 
 const main = cli(process.argv).pipe(
   Effect.provide(Layer.mergeAll(NodeContext.layer, StateStore.Default, ClaudeService.Default)),
+  Effect.scoped,
 )
 
 NodeRuntime.runMain(main)

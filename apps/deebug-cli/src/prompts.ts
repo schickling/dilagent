@@ -1,14 +1,37 @@
-export const generateHypothesisIdeasPrompt = ({ problemPrompt }: { problemPrompt: string }) => `\
+import { JSONSchema } from 'effect'
+import { GenerateExperimentsInputResult } from './schema.ts'
+
+const jSchema = JSON.stringify(JSONSchema.make(GenerateExperimentsInputResult))
+
+export const jsonOnlySystemPrompt = `CRITICAL SYSTEM CONSTRAINT: You are operating in JSON-only mode. Your output must be pure JSON with zero additional text. Any text before or after JSON will cause parsing errors and system failure. Do not explain, do not comment, do not add context. Output must start with { and end with }.`
+
+export const generateHypothesisIdeasPrompt = ({
+  problemPrompt,
+  resolvedWorkingDirectory,
+}: {
+  problemPrompt: string
+  resolvedWorkingDirectory: string
+}) => `\
 Study the following problem and generate a list of potential hypotheses for the root cause.
 We will then run experiments to test each hypothesis in depth. Order the hypotheses by likelihood of being the root cause.
 
-For each hypothesis provide a:
-- Title
-- Description
-- Reproduction Steps
+<problem>
+${problemPrompt}
+</problem>
+
+<working-directory>
+${resolvedWorkingDirectory}
+</working-directory>
+
+CRITICAL: You must respond with ONLY JSON. No explanations. No text before JSON. No text after JSON.
+
+JSON Schema: ${jSchema}
+
+Begin your response with {
 `
 
-export const makeExperimentInstructions = `\
+/** instructions.md */
+export const experimentInstructions = `\
 You are an expert debugging assistant. Your job is to analyze and diagnose the root cause for the given problem.
 
 ## Goal
@@ -24,14 +47,23 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 - Logging: add log statements
 - Research: do some web research (e.g. existing issues on GitHub) to build a deeper understanding of the problem
 
+## MCP Server
+
+- Use the MCP server \`kvStore\` to update the experiment manager about your progress and results.
+
+// TODO
+// 
+
 ## Acceptance Criteria
 
 - The root cause is identified
 - The root cause is reproducible
 - The root cause is documented in the \`report.md\` file
 - The root cause has been counter-tested with counter hypothesis
+
 `
 
+/** context.md */
 export const makeExperimentContext = ({
   problemTitle,
   problemDescription,

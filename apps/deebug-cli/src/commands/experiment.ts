@@ -1,8 +1,8 @@
+import path from 'node:path'
 import * as Cli from '@effect/cli'
-import { Command } from '@effect/platform'
 import { Effect, Stream } from 'effect'
-import path from 'path'
 import { ClaudeService } from '../services/claude.ts'
+import { createFileLoggerLayer } from '../services/file-logger.ts'
 import type { ClaudeCodeMessage } from '../types/claude-code-protocol.ts'
 
 export const experimentCommand = Cli.Command.make(
@@ -11,31 +11,55 @@ export const experimentCommand = Cli.Command.make(
     worktree: Cli.Options.directory('worktree-dir'),
     managerPort: Cli.Options.integer('manager-port'),
   },
-  Effect.fn(function* ({ worktree }) {
-    const resolvedWorktree = path.resolve(worktree)
+  ({ worktree, managerPort }) =>
+    Effect.gen(function* () {
+      const resolvedWorktree = path.resolve(worktree)
 
-    const files = yield* Command.make('ls', '-la').pipe(Command.workingDirectory(resolvedWorktree), Command.string)
-    console.log(`files in ${resolvedWorktree}`, files)
+      yield* Effect.log(`Worktree: ${resolvedWorktree}`)
+      yield* Effect.log(`Manager port: ${managerPort}`)
 
-    const claude = yield* ClaudeService
+      // const files = yield* Command.make('ls', '-la').pipe(Command.workingDirectory(resolvedWorktree), Command.string)
+      // console.log(`files in ${resolvedWorktree}`, files)
 
-    yield* claude
-      .promptStream(`Diagnose the bug in ${resolvedWorktree}`, { extraArgs: ['--dangerously-skip-permissions'] })
-      .pipe(Stream.tap(logClaudeMessage), Stream.runDrain)
-  }),
+      const claude = yield* ClaudeService
+
+      const mcpConfig = {
+        mcpServers: {
+          kvStore: { type: 'http', url: `http://localhost:${managerPort}/mcp` },
+        },
+      }
+
+      yield* Effect.log('Starting Claude prompt stream')
+
+      yield* claude
+        .promptStream(`Create some example data in the kvStore mcp thing`, {
+          // .promptStream(`Diagnose the bug in ${resolvedWorktree}`, {
+          // TODO re-fine permissions
+          extraArgs: ['--dangerously-skip-permissions', '--mcp-config', `'${JSON.stringify(mcpConfig)}'`],
+        })
+        .pipe(Stream.tap(logClaudeMessage), Stream.runDrain)
+
+      yield* Effect.log('Experiment completed')
+    }).pipe(
+      Effect.withSpan('experiment-command'),
+      // Additionally stream the log output to a file
+      Effect.provide(createFileLoggerLayer(path.resolve(worktree, 'experiment.log'))),
+    ),
 )
 
 const logClaudeMessage = Effect.fn(function* (message: ClaudeCodeMessage) {
   if (message.type === 'assistant') {
-    console.log('[assistant]', ...message.message.content.map((c) => (c.type === 'tool_result' ? c.content : c)))
+    const content = message.message.content.map((c) => (c.type === 'tool_result' ? c.content : c)).join(' ')
+    yield* Effect.log(`[assistant] ${content}`)
   }
   if (message.type === 'user') {
-    console.log('[user]', ...message.message.content.map((c) => (c.type === 'tool_result' ? c.content : c)))
+    const content = message.message.content.map((c) => (c.type === 'tool_result' ? c.content : c)).join(' ')
+    yield* Effect.log(`[user] ${content}`)
   }
   if (message.type === 'result') {
-    console.log('[result]', message.result)
+    yield* Effect.log(`[result] ${JSON.stringify(message.result)}`)
   }
   if (message.type === 'system') {
-    console.log('[system]', message)
+    yield* Effect.log(`[system] ${JSON.stringify(message)}`)
   }
 })
