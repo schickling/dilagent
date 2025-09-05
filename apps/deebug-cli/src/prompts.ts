@@ -1,5 +1,5 @@
 import { JSONSchema } from 'effect'
-import { GenerateExperimentsInputResult } from './schema.ts'
+import { type ExperimentInput, GenerateExperimentsInputResult } from './schema.ts'
 
 const jSchema = JSON.stringify(JSONSchema.make(GenerateExperimentsInputResult))
 
@@ -7,21 +7,24 @@ export const jsonOnlySystemPrompt = `CRITICAL SYSTEM CONSTRAINT: You are operati
 
 export const generateHypothesisIdeasPrompt = ({
   problemPrompt,
-  resolvedWorkingDirectory,
+  resolvedContextDirectory,
 }: {
   problemPrompt: string
-  resolvedWorkingDirectory: string
+  resolvedContextDirectory: string
 }) => `\
 Study the following problem and generate a list of potential hypotheses for the root cause.
 We will then run experiments to test each hypothesis in depth. Order the hypotheses by likelihood of being the root cause.
+Use the files in the context directory to reproduce the problem.
 
 <problem>
 ${problemPrompt}
 </problem>
 
-<working-directory>
-${resolvedWorkingDirectory}
-</working-directory>
+<context-directory>
+${resolvedContextDirectory}
+</context-directory>
+
+Return an error if you cannot generate a list of potential hypotheses.
 
 CRITICAL: You must respond with ONLY JSON. No explanations. No text before JSON. No text after JSON.
 
@@ -37,7 +40,9 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 ## Goal
 
 1. Identify the root cause of the problem
-2. 
+2. Document the root cause and your progress in the \`report.md\` file
+
+// TODO ascii art diagram for feedback loop of testing hypotheses
 
 ## Strategies
 
@@ -54,6 +59,8 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 // TODO
 // 
 
+## \`report.md\`
+
 ## Acceptance Criteria
 
 - The root cause is identified
@@ -67,25 +74,33 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 export const makeExperimentContext = ({
   problemTitle,
   problemDescription,
-  experimentInstructions,
+  reproductionSteps,
   experimentId,
-}: {
-  problemTitle: string
-  problemDescription: string
-  experimentInstructions: string
-  experimentId: string
-}) => `\
+  experimentApproach,
+  workingDirectory,
+}: ExperimentInput & { workingDirectory: string }) => `\
 ## Experiment: \`${experimentId}\`
 
 ## Instructions
 
 Follow the instructions provided in the \`instructions.md\` file.
 
+## Working Directory: \`${workingDirectory}\`
+
 ## Problem: ${problemTitle}
 
 ${problemDescription}
 
-## Experiment
+## Reproduction Steps
 
-${experimentInstructions}
+${reproductionSteps.join('\n')}
+
+## Experiment Approach
+
+Here is an initial approach to the experiment. Refine it as you go.
+
+<experiment-approach>
+${experimentApproach}
+</experiment-approach>
+
 `

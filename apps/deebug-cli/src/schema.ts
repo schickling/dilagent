@@ -23,7 +23,8 @@ export const ExperimentInput = Schema.TaggedStruct('ExperimentInput', {
   experimentId: Schema.String.annotations({ description: 'Format: E001, E002, ...' }),
   problemTitle: Schema.String,
   problemDescription: Schema.String,
-  reproductionSteps: Schema.String,
+  experimentApproach: Schema.String,
+  reproductionSteps: Schema.Array(Schema.String),
 })
 
 export type ExperimentInput = typeof ExperimentInput.Type

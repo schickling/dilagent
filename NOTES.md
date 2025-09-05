@@ -47,6 +47,10 @@ Principled, structured debugging and root cause analysis
     - `instructions.md` standard file
 - Web ui
 
+## TODO
+
+- [] Implement git worktree support
+
 ## Other notes
 
 - In the future we might want a manager of managers (command `supervisor`)

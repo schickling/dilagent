@@ -1,9 +1,9 @@
 import { Command } from '@effect/platform'
 import type * as CommandExecutor from '@effect/platform/CommandExecutor'
 import type { PlatformError } from '@effect/platform/Error'
-import { Effect, Schema, Stream } from 'effect'
-import type { ClaudeCodeMessage } from '../types/claude-code-protocol.ts'
+import { Effect, Layer, Schema, Stream } from 'effect'
 import { logDuration } from '../utils/Effect.ts'
+import { LLMError, type LLMOptions, LLMService, type MCPConfig } from './llm.ts'
 
 /**
  * Claude CLI response schema
@@ -21,119 +21,130 @@ const ClaudeResponseSchema = Schema.Struct({
   }),
 })
 
-/**
- * Custom error for Claude CLI failures
- */
-export class ClaudeError extends Schema.TaggedError<ClaudeError>()('ClaudeError', {
-  cause: Schema.Defect,
-  message: Schema.String,
-  exitCode: Schema.optional(Schema.Number),
-}) {}
-
 export const ClaudeModel = Schema.Literal('Opus', 'Sonnet')
 export type ClaudeModel = typeof ClaudeModel.Type
 
 /**
- * Service for Claude operations using the Claude CLI
+ * Build Claude CLI command with common options
  */
-export class ClaudeService extends Effect.Service<ClaudeService>()('ClaudeService', {
-  effect: Effect.gen(function* () {
-    /**
-     * Build Claude CLI command with common options
-     */
-    const buildCommand = (
-      input: string,
-      options: { model?: ClaudeModel; extraArgs?: string[]; outputFormat?: 'json' | 'stream-json'; systemPrompt?: string } = {},
-    ) => {
-      const args = ['--print']
+const buildCommand = (
+  input: string,
+  options: {
+    model?: ClaudeModel
+    outputFormat?: 'json' | 'stream-json'
+    systemPrompt?: string
+    verbose?: boolean
+    mcpConfig?: MCPConfig
+  } = {},
+) => {
+  const args = ['--print']
 
-      if (options.model) {
-        args.push('--model', options.model)
-      }
+  if (options.model) {
+    args.push('--model', options.model)
+  }
 
-      if (options.outputFormat) {
-        args.push('--output-format', options.outputFormat)
-        if (options.outputFormat === 'stream-json') {
-          args.push('--verbose')
-        }
-      }
+  if (options.outputFormat) {
+    args.push('--output-format', options.outputFormat)
+    if (options.outputFormat === 'stream-json' || options.verbose) {
+      args.push('--verbose')
+    }
+  }
 
-      if (options.systemPrompt) {
-        args.push('--append-system-prompt', JSON.stringify(options.systemPrompt))
-      }
+  if (options.systemPrompt) {
+    args.push('--append-system-prompt', JSON.stringify(options.systemPrompt))
+  }
 
-      if (options.extraArgs) {
-        args.push(...options.extraArgs)
-      }
+  if (options.mcpConfig) {
+    args.push('--mcp-config', JSON.stringify(options.mcpConfig))
+  }
 
-      // Use bash to pipe input to Claude CLI
-      const bashCommand = `echo ${JSON.stringify(input)} | claude ${args.join(' ')}`
-      return Command.make('bash', '-c', bashCommand)
+  // Use bash to pipe input to Claude CLI
+  const bashCommand = `echo ${JSON.stringify(input)} | claude ${args.join(' ')}`
+  return Command.make('bash', '-c', bashCommand)
+}
+
+/**
+ * Send a prompt to Claude and get the response
+ */
+const prompt = (
+  input: string,
+  options: LLMOptions = {},
+): Effect.Effect<string, LLMError | PlatformError, CommandExecutor.CommandExecutor> =>
+  Effect.gen(function* () {
+    // Map LLM options to Claude-specific options
+    const model: ClaudeModel = options.useBestModel ? 'Opus' : 'Sonnet'
+
+    const command = buildCommand(input, {
+      model,
+      outputFormat: 'json',
+      ...(options.systemPrompt && { systemPrompt: options.systemPrompt }),
+      ...(options.verbose && { verbose: options.verbose }),
+      ...(options.mcpConfig && { mcpConfig: options.mcpConfig }),
+    })
+
+    const output = yield* Command.string(command).pipe(Effect.withSpan('claude.string'))
+
+    const parsedResponse = yield* Effect.try({
+      try: () => JSON.parse(output.trim()),
+      catch: (cause) =>
+        new LLMError({
+          cause,
+          message: `Failed to parse Claude CLI JSON response: ${output}`,
+        }),
+    })
+
+    const validatedResponse = yield* Schema.decodeUnknown(ClaudeResponseSchema)(parsedResponse).pipe(
+      Effect.mapError(
+        (cause) =>
+          new LLMError({
+            cause,
+            message: 'Claude CLI returned unexpected response format',
+          }),
+      ),
+    )
+
+    if (validatedResponse.is_error) {
+      return yield* Effect.fail(
+        new LLMError({
+          cause: new Error('Claude returned an error response'),
+          message: `Claude error: ${validatedResponse.result}`,
+        }),
+      )
     }
 
-    /**
-     * Send a prompt to Claude and get the response
-     */
-    const prompt = (
-      input: string,
-      options: { model?: ClaudeModel; extraArgs?: string[]; systemPrompt?: string } = {},
-    ): Effect.Effect<string, ClaudeError | PlatformError, CommandExecutor.CommandExecutor> =>
-      Effect.gen(function* () {
-        const command = buildCommand(input, { ...options, outputFormat: 'json' })
+    return validatedResponse.result
+  }).pipe(Effect.withSpan('claude.prompt'), logDuration('claude.prompt'))
 
-        const output = yield* Command.string(command).pipe(Effect.withSpan('claude.string'))
+/**
+ * Send a prompt to Claude and stream the response line by line
+ */
+const promptStream = (
+  input: string,
+  options: LLMOptions = {},
+): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor> => {
+  // Map LLM options to Claude-specific options
+  const model: ClaudeModel = options.useBestModel ? 'Opus' : 'Sonnet'
 
-        const parsedResponse = yield* Effect.try({
-          try: () => JSON.parse(output.trim()),
-          catch: (cause) =>
-            new ClaudeError({
-              cause,
-              message: `Failed to parse Claude CLI JSON response: ${output}`,
-            }),
-        })
+  return Command.streamLines(
+    buildCommand(input, {
+      model,
+      outputFormat: 'stream-json',
+      ...(options.systemPrompt && { systemPrompt: options.systemPrompt }),
+      ...(options.verbose && { verbose: options.verbose }),
+    }),
+  ).pipe(
+    Stream.withSpan('claude.promptStream'),
+    Stream.mapError(
+      (cause) =>
+        new LLMError({
+          cause,
+          message: 'Failed to stream from Claude CLI',
+        }),
+    ),
+  )
+}
 
-        const validatedResponse = yield* Schema.decodeUnknown(ClaudeResponseSchema)(parsedResponse).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ClaudeError({
-                cause,
-                message: 'Claude CLI returned unexpected response format',
-              }),
-          ),
-        )
-
-        if (validatedResponse.is_error) {
-          return yield* Effect.fail(
-            new ClaudeError({
-              cause: new Error('Claude returned an error response'),
-              message: `Claude error: ${validatedResponse.result}`,
-            }),
-          )
-        }
-
-        return validatedResponse.result
-      }).pipe(Effect.withSpan('claude.prompt'), logDuration('claude.prompt'))
-
-    /**
-     * Send a prompt to Claude and stream the response line by line
-     */
-    const promptStream = (
-      input: string,
-      options: { model?: ClaudeModel; extraArgs?: string[]; systemPrompt?: string } = {},
-    ): Stream.Stream<ClaudeCodeMessage, ClaudeError | PlatformError, CommandExecutor.CommandExecutor> =>
-      Command.streamLines(buildCommand(input, { ...options, outputFormat: 'stream-json' })).pipe(
-        Stream.map((_) => JSON.parse(_) as ClaudeCodeMessage),
-        Stream.withSpan('claude.promptStream'),
-        Stream.mapError(
-          (cause) =>
-            new ClaudeError({
-              cause,
-              message: 'Failed to stream from Claude CLI',
-            }),
-        ),
-      )
-
-    return { prompt, promptStream } as const
-  }),
-  dependencies: [],
-}) {}
+/**
+ * Claude implementation of the LLM service
+ */
+export const ClaudeLLMLive = Layer.succeed(LLMService, LLMService.of({ _tag: 'LLMService', prompt, promptStream }))

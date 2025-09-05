@@ -1,7 +1,7 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
-import { FileSystem } from '@effect/platform'
-import { Console, Effect, Option, Schema } from 'effect'
+import { Command, FileSystem } from '@effect/platform'
+import { Effect, Option, Schema } from 'effect'
 import {
   experimentInstructions,
   generateHypothesisIdeasPrompt,
@@ -10,71 +10,95 @@ import {
 } from '../prompts.ts'
 import { runRepl } from '../repl.ts'
 import { type ExperimentInput, GenerateExperimentsInputResult } from '../schema.ts'
-import { ClaudeService } from '../services/claude.ts'
+import { ClaudeLLMLive } from '../services/claude.ts'
+import { CodexLLMLive } from '../services/codex.ts'
+import { getFreePort } from '../services/free-port.ts'
+import { LLMService } from '../services/llm.ts'
 import { createMcpServerLayer } from '../services/mcp-server.js'
 import { experimentCommand } from './experiment.ts'
 
 export const managerCommand = Cli.Command.make(
   'manager',
   {
-    port: Cli.Options.integer('port').pipe(
+    portOption: Cli.Options.integer('port').pipe(
       Cli.Options.optional,
       Cli.Options.withAlias('p'),
       Cli.Options.withDescription('Port to run the MCP server on'),
     ),
+    contextDirectory: Cli.Options.directory('context-directory'),
     workingDirectory: Cli.Options.directory('working-directory'),
     prompt: Cli.Options.text('prompt'),
+    llm: Cli.Options.choice('llm', ['claude', 'codex']),
+    cwdOption: Cli.Options.directory('cwd').pipe(Cli.Options.optional),
   },
-  ({ port: portOption, workingDirectory, prompt }) => {
-    const actualPort = Option.getOrElse(portOption, () => 3000)
-    return Effect.gen(function* () {
-      const resolvedWorkingDirectory = path.resolve(workingDirectory)
+  ({ portOption, contextDirectory, workingDirectory, prompt, llm, cwdOption }) =>
+    Effect.gen(function* () {
+      const fallbackPort = yield* getFreePort
+      const port = Option.getOrElse(portOption, () => fallbackPort)
+      const cwd = Option.getOrElse(cwdOption, () => process.cwd())
 
-      const experiments = yield* generateExperiments({ problemPrompt: prompt, resolvedWorkingDirectory })
+      return yield* Effect.gen(function* () {
+        const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
+        const resolvedContextDirectory = path.resolve(cwd, contextDirectory)
 
-      for (const experiment of experiments) {
-        yield* prepareExperiment({ ...experiment, resolvedWorkingDirectory })
-        yield* runExperiment({ resolvedWorkingDirectory, port: actualPort, experiment })
-      }
+        yield* Effect.log(`Context directory: ${resolvedContextDirectory}`)
+        yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
 
-      console.log('experiments', experiments)
+        yield* Effect.log(`Generating experiments...`)
+        const experiments = yield* generateExperiments({ problemPrompt: prompt, resolvedContextDirectory })
 
-      // yield* runExperiments({ resolvedWorkingDirectory, port: actualPort }).pipe(
-      //   Effect.tapErrorCause(Effect.logError),
-      //   Effect.forkScoped,
-      // )
+        yield* Effect.log(
+          `Running ${experiments.length} experiments: \n${experiments.map((e) => `- ${e.experimentId}: ${e.problemTitle}`).join('\n')}`,
+        )
 
-      // yield* Console.log(`Starting MCP server on port ${actualPort}...`)
-      // yield* Console.log(`MCP endpoint: http://localhost:${actualPort}/mcp`)
-      // yield* Console.log(`Health check: http://localhost:${actualPort}/health`)
-      // yield* Console.log('')
+        yield* Effect.forEach(
+          experiments,
+          Effect.fn(function* (experiment) {
+            yield* prepareExperiment({ experiment, resolvedWorkingDirectory, resolvedContextDirectory })
+            yield* runExperiment({
+              resolvedWorkingDirectory,
+              resolvedContextDirectory,
+              port: port,
+              experiment,
+              llm,
+              cwd,
+            })
+          }),
+          { concurrency: 4 },
+        ).pipe(Effect.tapErrorCause(Effect.logError), Effect.forkScoped)
 
-      // // Run REPL (StateStore provided from outer scope)
-      // yield* runRepl
-    }).pipe(
-      // Provide StateStore.Live once at the top level so it's shared by both server and REPL
-      Effect.provide(createMcpServerLayer(actualPort)),
-    )
-  },
+        yield* Effect.log(`Starting MCP server on port ${port}...`)
+        yield* Effect.log(`MCP endpoint: http://localhost:${port}/mcp`)
+        yield* Effect.log(`Health check: http://localhost:${port}/health`)
+        yield* Effect.log('')
+
+        // Run REPL (StateStore provided from outer scope)
+        yield* runRepl
+      }).pipe(
+        Effect.provide(createMcpServerLayer(port)),
+        Effect.provide(llm === 'claude' ? ClaudeLLMLive : CodexLLMLive),
+      )
+    }),
 )
 
 const generateExperiments = ({
   problemPrompt,
-  resolvedWorkingDirectory,
+  resolvedContextDirectory,
 }: {
   problemPrompt: string
-  resolvedWorkingDirectory: string
+  resolvedContextDirectory: string
 }) =>
   Effect.gen(function* () {
-    const claude = yield* ClaudeService
+    const llm = yield* LLMService
 
-    const experimentInputResult = yield* claude
-      .prompt(generateHypothesisIdeasPrompt({ problemPrompt, resolvedWorkingDirectory }), {
-        // TODO re-fine permissions
-        extraArgs: ['--dangerously-skip-permissions'],
+    const experimentInputResult = yield* llm
+      .prompt(generateHypothesisIdeasPrompt({ problemPrompt, resolvedContextDirectory }), {
         systemPrompt: jsonOnlySystemPrompt,
+        useBestModel: true,
+        sandboxMode: 'danger-full-access',
+        workingDir: resolvedContextDirectory,
       })
-      .pipe(Effect.tap(Effect.log), Effect.andThen(Schema.decode(Schema.parseJson(GenerateExperimentsInputResult))))
+      .pipe(Effect.andThen(Schema.decode(Schema.parseJson(GenerateExperimentsInputResult))))
 
     if (experimentInputResult._tag === 'Error') {
       return yield* Effect.die(experimentInputResult.error)
@@ -84,43 +108,59 @@ const generateExperiments = ({
   }).pipe(Effect.withSpan('generateExperiments'))
 
 const prepareExperiment = ({
-  problemTitle,
-  problemDescription,
-  experimentId,
+  experiment,
   resolvedWorkingDirectory,
-}: ExperimentInput & { resolvedWorkingDirectory: string }) =>
+  resolvedContextDirectory,
+}: {
+  experiment: ExperimentInput
+  resolvedWorkingDirectory: string
+  resolvedContextDirectory: string
+}) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const worktree = path.resolve(resolvedWorkingDirectory, experimentId)
+    const worktree = path.join(resolvedWorkingDirectory, experiment.experimentId)
 
-    fs.writeFileString(path.resolve(worktree, 'instructions.md'), experimentInstructions)
-    fs.writeFileString(
-      path.resolve(worktree, 'context.md'),
-      makeExperimentContext({ problemTitle, problemDescription, experimentInstructions, experimentId }),
+    yield* fs.makeDirectory(worktree, { recursive: true })
+
+    yield* fs.writeFileString(path.join(worktree, 'instructions.md'), experimentInstructions)
+    yield* fs.writeFileString(
+      path.join(worktree, 'context.md'),
+      makeExperimentContext({ ...experiment, workingDirectory: worktree }),
     )
-    fs.writeFileString(path.resolve(worktree, 'report.md'), 'TODO: Create report here')
+
+    yield* fs.writeFileString(path.join(worktree, 'report.md'), 'TODO: Create report here')
+
+    // Copy all contents of resolvedContextDirectory into worktree, not the directory itself
+    yield* Command.make('cp', '-r', path.join(resolvedContextDirectory, '.'), worktree).pipe(Command.string)
   }).pipe(Effect.withSpan('prepareExperiment'))
 
 const runExperiment = ({
   resolvedWorkingDirectory,
+  resolvedContextDirectory,
   port,
   experiment,
+  llm,
+  cwd,
 }: {
   resolvedWorkingDirectory: string
+  resolvedContextDirectory: string
   port: number
   experiment: ExperimentInput
+  llm: 'claude' | 'codex'
+  cwd: string
 }) =>
   Effect.gen(function* () {
-    const experimentWorkTree = path.resolve(resolvedWorkingDirectory, experiment.experimentId)
+    const experimentWorkTree = path.join(resolvedWorkingDirectory, experiment.experimentId)
 
-    const fs = yield* FileSystem.FileSystem
-    yield* fs.makeDirectory(experimentWorkTree, { recursive: true })
+    yield* prepareExperiment({ experiment, resolvedWorkingDirectory, resolvedContextDirectory })
 
-    yield* prepareExperiment({ ...experiment, resolvedWorkingDirectory })
-
-    console.log('running experiment', experimentWorkTree)
-
-    yield* experimentCommand.handler({ managerPort: port, worktree: experimentWorkTree })
+    yield* experimentCommand.handler({
+      managerPort: port,
+      worktree: experimentWorkTree,
+      llm,
+      showLogsOption: Option.none(),
+      cwdOption: Option.some(cwd),
+    })
   }).pipe(Effect.withSpan('runExperiments'))
 
 // const monitorExperiments = ({ resolvedWorkingDirectory, port }: { resolvedWorkingDirectory: string; port: number }) =>

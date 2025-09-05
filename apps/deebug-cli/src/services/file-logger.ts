@@ -1,6 +1,5 @@
 import { PlatformLogger } from '@effect/platform'
-import { NodeFileSystem } from '@effect/platform-node'
-import { Layer, Logger } from 'effect'
+import { Logger } from 'effect'
 
 /**
  * Creates a file logger that writes logs to the specified file path.
@@ -17,11 +16,10 @@ export const createJsonFileLogger = (filePath: string) => Logger.jsonLogger.pipe
  * Creates a file logger layer that replaces the default logger.
  * This layer provides both the file logger and the required NodeFileSystem dependency.
  */
-export const createFileLoggerLayer = (filePath: string) =>
-  Logger.replaceScoped(Logger.defaultLogger, createFileLogger(filePath)).pipe(Layer.provide(NodeFileSystem.layer))
-
-/**
- * Creates a JSON file logger layer that replaces the default logger.
- */
-export const createJsonFileLoggerLayer = (filePath: string) =>
-  Logger.replaceScoped(Logger.defaultLogger, createJsonFileLogger(filePath)).pipe(Layer.provide(NodeFileSystem.layer))
+export const createFileLoggerLayer = (
+  filePath: string,
+  { replace, format }: { replace?: boolean; format?: 'logfmt' | 'json' } = {},
+) => {
+  const logger = format === 'logfmt' ? createFileLogger(filePath) : createJsonFileLogger(filePath)
+  return replace ? Logger.replaceScoped(Logger.defaultLogger, logger) : Logger.addEffect(logger)
+}

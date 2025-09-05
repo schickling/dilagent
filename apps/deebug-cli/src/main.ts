@@ -3,9 +3,8 @@
 import * as Cli from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { Effect, Layer } from 'effect'
-import { experimentCommand } from './commands/experiment.js'
-import { managerCommand } from './commands/manager.js'
-import { ClaudeService } from './services/claude.js'
+import { experimentCommand } from './commands/experiment.ts'
+import { managerCommand } from './commands/manager.ts'
 import { StateStore } from './services/state-store.ts'
 
 const mainCommand = Cli.Command.make('deebug', {}).pipe(
@@ -18,8 +17,8 @@ const cli = Cli.Command.run(mainCommand, {
 })
 
 const main = cli(process.argv).pipe(
-  Effect.provide(Layer.mergeAll(NodeContext.layer, StateStore.Default, ClaudeService.Default)),
+  Effect.provide(Layer.mergeAll(NodeContext.layer, StateStore.Default)),
   Effect.scoped,
 )
 
-NodeRuntime.runMain(main)
+NodeRuntime.runMain(main, { disablePrettyLogger: true })
