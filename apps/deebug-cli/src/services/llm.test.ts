@@ -203,14 +203,14 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
     expect(parsed.mcpServers.stateStore.type).toBe('http')
   })
 
-  describe('with MCP tools', () => {
+  describe('with MCP tools', { timeout: 60000 }, () => {
     const mcpConfig = {
       mcpServers: {
         stateStore: { type: 'http' as const, url: 'http://localhost:3457/mcp' },
       },
     }
 
-    it('executes state.set tool and stores data', async () => {
+    it('executes deebug_state_set tool and stores data', async () => {
       await runtime.runPromise(
         Effect.gen(function* () {
           const llm = yield* LLMService
@@ -223,31 +223,24 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const testData = { _tag: 'Proven' as const, experimentId: 'E001' }
 
           // Prompt to store the value using MCP tools
-          const result = yield* llm
-            .prompt(
-              `Use the state.set tool to store this experiment result: {"_tag": "Proven", "experimentId": "E001"} with key "test-key"`,
-              {
-                mcpConfig,
-                skipPermissions: true,
-              },
-            )
-            .pipe(Effect.catchAll(handleExpectedCliErrors))
+          const result = yield* llm.prompt(
+            `Use the deebug_state_set tool to store this experiment result: {"_tag": "Proven", "experimentId": "E001"} with key "test-key"`,
+            {
+              mcpConfig,
+              skipPermissions: true,
+            },
+          )
 
-          // Verify the value was stored in StateStore (if CLI is configured)
+          // Since we provided MCP config, we expect tool usage to work
+          expect(typeof result).toBe('string')
+          expect(result.length).toBeGreaterThan(0)
+
+          // Verify the value was actually stored in StateStore
           const storedValue = yield* store.get('test-key')
-
-          if (result === 'CLI tools not configured - test passed') {
-            // CLI not configured - just verify the test completed without unexpected errors
-            expect(result).toBe('CLI tools not configured - test passed')
-          } else {
-            // CLI is configured - verify actual tool execution
-            expect(typeof result).toBe('string')
-            expect(result.length).toBeGreaterThan(0)
-            expect(storedValue).toEqual(testData)
-          }
+          expect(storedValue).toEqual(testData)
         }),
       )
-    }, 15000)
+    })
 
     it('executes state.get tool and retrieves data', async () => {
       await runtime.runPromise(
@@ -266,26 +259,19 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           yield* store.set('existing-key', testData)
 
           // Prompt to retrieve the value using MCP tools
-          const result = yield* llm
-            .prompt('Use the state.get tool to retrieve the value for key "existing-key"', {
-              mcpConfig,
-              skipPermissions: true,
-            })
-            .pipe(Effect.catchAll(handleExpectedCliErrors))
+          const result = yield* llm.prompt('Use the state.get tool to retrieve the value for key "existing-key"', {
+            mcpConfig,
+            skipPermissions: true,
+          })
 
-          if (result === 'CLI tools not configured - test passed') {
-            // CLI not configured - just verify the test completed
-            expect(result).toBe('CLI tools not configured - test passed')
-          } else {
-            // CLI is configured - verify response contains the retrieved data
-            expect(typeof result).toBe('string')
-            expect(result.length).toBeGreaterThan(0)
-            expect(result).toContain('E002')
-            expect(result).toContain('Disproven')
-          }
+          // Since we provided MCP config, we expect tool usage to work
+          expect(typeof result).toBe('string')
+          expect(result.length).toBeGreaterThan(0)
+          expect(result).toContain('E002')
+          expect(result).toContain('Disproven')
         }),
       )
-    }, 15000)
+    })
 
     it('executes state.list tool and shows all entries', async () => {
       await runtime.runPromise(
@@ -302,28 +288,21 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           yield* store.set('key2', testData2)
 
           // Prompt to list all entries using MCP tools
-          const result = yield* llm
-            .prompt('Use the state.list tool to show all entries in the state store', {
-              mcpConfig,
-              skipPermissions: true,
-            })
-            .pipe(Effect.catchAll(handleExpectedCliErrors))
+          const result = yield* llm.prompt('Use the state.list tool to show all entries in the state store', {
+            mcpConfig,
+            skipPermissions: true,
+          })
 
-          if (result === 'CLI tools not configured - test passed') {
-            // CLI not configured - just verify the test completed
-            expect(result).toBe('CLI tools not configured - test passed')
-          } else {
-            // CLI is configured - verify response contains both entries
-            expect(typeof result).toBe('string')
-            expect(result.length).toBeGreaterThan(0)
-            expect(result).toContain('key1')
-            expect(result).toContain('key2')
-            expect(result).toContain('E003')
-            expect(result).toContain('E004')
-          }
+          // Since we provided MCP config, we expect tool usage to work
+          expect(typeof result).toBe('string')
+          expect(result.length).toBeGreaterThan(0)
+          expect(result).toContain('key1')
+          expect(result).toContain('key2')
+          expect(result).toContain('E003')
+          expect(result).toContain('E004')
         }),
       )
-    }, 15000)
+    })
 
     it('executes state.clear tool and empties the store', async () => {
       await runtime.runPromise(
@@ -340,30 +319,24 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           expect(initialValue).toEqual(testData)
 
           // Prompt to clear the store using MCP tools
-          const result = yield* llm
-            .prompt('Use the state.clear tool to clear all entries from the state store', {
-              mcpConfig,
-              skipPermissions: true,
-            })
-            .pipe(Effect.catchAll(handleExpectedCliErrors))
+          const result = yield* llm.prompt('Use the state.clear tool to clear all entries from the state store', {
+            mcpConfig,
+            skipPermissions: true,
+          })
 
-          if (result === 'CLI tools not configured - test passed') {
-            // CLI not configured - just verify the test completed
-            expect(result).toBe('CLI tools not configured - test passed')
-          } else {
-            // CLI is configured - verify store was cleared
-            expect(typeof result).toBe('string')
-            expect(result.length).toBeGreaterThan(0)
+          // Since we provided MCP config, we expect tool usage to work
+          expect(typeof result).toBe('string')
+          expect(result.length).toBeGreaterThan(0)
 
-            const clearedValue = yield* store.get('temp-key')
-            expect(clearedValue).toBeUndefined()
+          // Verify store was actually cleared
+          const clearedValue = yield* store.get('temp-key')
+          expect(clearedValue).toBeUndefined()
 
-            const allEntries = yield* store.list()
-            expect(allEntries).toHaveLength(0)
-          }
+          const allEntries = yield* store.list()
+          expect(allEntries).toHaveLength(0)
         }),
       )
-    }, 15000)
+    })
 
     it('executes state.keys tool and lists all keys', async () => {
       await runtime.runPromise(
@@ -380,25 +353,18 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           yield* store.set('beta-key', testData2)
 
           // Prompt to get all keys using MCP tools
-          const result = yield* llm
-            .prompt('Use the state.keys tool to get all keys from the state store', {
-              mcpConfig,
-              skipPermissions: true,
-            })
-            .pipe(Effect.catchAll(handleExpectedCliErrors))
+          const result = yield* llm.prompt('Use the state.keys tool to get all keys from the state store', {
+            mcpConfig,
+            skipPermissions: true,
+          })
 
-          if (result === 'CLI tools not configured - test passed') {
-            // CLI not configured - just verify the test completed
-            expect(result).toBe('CLI tools not configured - test passed')
-          } else {
-            // CLI is configured - verify response contains both keys
-            expect(typeof result).toBe('string')
-            expect(result.length).toBeGreaterThan(0)
-            expect(result).toContain('alpha-key')
-            expect(result).toContain('beta-key')
-          }
+          // Since we provided MCP config, we expect tool usage to work
+          expect(typeof result).toBe('string')
+          expect(result.length).toBeGreaterThan(0)
+          expect(result).toContain('alpha-key')
+          expect(result).toContain('beta-key')
         }),
       )
-    }, 15000)
+    })
   })
 })

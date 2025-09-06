@@ -33,7 +33,7 @@ export const experimentCommand = Cli.Command.make(
 
       const mcpConfig = {
         mcpServers: {
-          kvStore: { type: 'http' as const, url: `http://localhost:${managerPort}/mcp` },
+          stateStore: { type: 'http' as const, url: `http://localhost:${managerPort}/mcp` },
         },
       }
 

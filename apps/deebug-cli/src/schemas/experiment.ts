@@ -1,7 +1,9 @@
 import { Schema } from 'effect'
 
+const experimentId = Schema.String.annotations({ description: 'Format: E001, E002, ...' })
+
 export const ExperimentInput = Schema.TaggedStruct('ExperimentInput', {
-  experimentId: Schema.String.annotations({ description: 'Format: E001, E002, ...' }),
+  experimentId,
   problemTitle: Schema.String.annotations({ description: 'A short title of the problem' }),
   problemDescription: Schema.String.annotations({ description: 'A short description of the problem' }),
   files: Schema.Array(Schema.String).annotations({ description: 'The files that are relevant to the problem' }),
@@ -34,10 +36,10 @@ export const GenerateExperimentsInputResult = Schema.Union(
 
 export const ExperimentResult = Schema.Union(
   Schema.TaggedStruct('Proven', {
-    experimentId: Schema.String,
+    experimentId,
   }),
   Schema.TaggedStruct('Disproven', {
-    experimentId: Schema.String,
+    experimentId,
     reason: Schema.String.annotations({
       description: 'A detailed description of the reason the experiment was disproven',
     }),
@@ -49,7 +51,7 @@ export const ExperimentResult = Schema.Union(
     }),
   }),
   Schema.TaggedStruct('Inconclusive', {
-    experimentId: Schema.String,
+    experimentId,
     currentStatus: Schema.String,
   }),
 ).annotations({
@@ -57,6 +59,6 @@ export const ExperimentResult = Schema.Union(
 })
 
 export const ExperimentStatusUpdate = Schema.TaggedStruct('ExperimentStatusUpdate', {
-  experimentId: Schema.String,
+  experimentId,
   status: ExperimentResult,
 })

@@ -1,8 +1,9 @@
 import { Command, type CommandExecutor } from '@effect/platform'
 import type { PlatformError } from '@effect/platform/Error'
-import { Effect, Layer, Schema, Stream } from 'effect'
+import { Effect, Layer, Record, Schema, Stream } from 'effect'
 import { logDuration } from '../utils/Effect.ts'
-import { LLMError, type LLMOptions, LLMService } from './llm.ts'
+import { toTomlString } from '../utils/toml.ts'
+import { LLMError, type LLMOptions, LLMService, type MCPConfig } from './llm.ts'
 
 export const CodexModel = Schema.Literal('gpt-5', 'gpt-5-high', 'gpt-5-medium', 'gpt-5-low')
 export type CodexModel = typeof CodexModel.Type
@@ -35,9 +36,12 @@ const buildCommand = (
     jsonOutput?: boolean
     systemPrompt?: string
     mcpConfig?: import('./llm.ts').MCPConfig
+    useBestModel?: boolean
   } = {},
 ): Effect.Effect<Command.Command, never, CommandExecutor.CommandExecutor> =>
   Effect.gen(function* () {
+    // See https://github.com/openai/codex/blob/main/docs/config.md for more details
+
     const args = ['exec']
 
     // Add JSON output format for programmatic usage
@@ -65,9 +69,20 @@ const buildCommand = (
       args.push('-c', `system_prompt=${JSON.stringify(options.systemPrompt)}`)
     }
 
+    if (options.useBestModel) {
+      args.push('--config', 'model_reasoning_effort=high')
+    }
+
     // MCP configuration support via --config flag
     if (options.mcpConfig) {
-      args.push('--config', JSON.stringify(options.mcpConfig))
+      // Codex doesn't support HTTP MCP servers, so we need to map them to stdio
+      // https://github.com/openai/codex/issues/3196
+      const mappedMcpConfig = mapHttpMcpToStdio(options.mcpConfig)
+      // We need to set the mcp_servers config as TOML-like configuration (no JSON object serialization)
+      for (const [key, value] of Object.entries(mappedMcpConfig.mcpServers ?? {})) {
+        console.log('mapped mcp config', value, toTomlString(value))
+        args.push('--config', `mcp_servers.${key}=${toTomlString(value)}`)
+      }
     }
 
     // Auto-detect git repo and add skip flag if needed
@@ -79,6 +94,8 @@ const buildCommand = (
 
     // Add the prompt as the last argument
     args.push(prompt)
+
+    console.log('codex command:', `codex ${args.map((_) => (_.startsWith('-') ? _ : `'${_}'`)).join(' ')}`)
 
     return Command.make('codex', ...args).pipe(Command.workingDirectory(options.workingDir ?? process.cwd()))
   })
@@ -93,12 +110,10 @@ const prompt = (
   Effect.gen(function* () {
     // Map LLM options to Codex-specific options
     // Use default model (gpt-5) for both cases since other variants are not supported
-    const model: CodexModel = 'gpt-5'
     const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
     const command = yield* buildCommand(input, {
       ...options,
-      model,
       sandboxMode,
       jsonOutput: true,
     })
@@ -138,6 +153,7 @@ const prompt = (
     for (const line of lines) {
       try {
         const event = JSON.parse(line)
+        // console.log('codex event', event)
 
         // Look for agent_message type with message field
         if (event.msg?.type === 'agent_message' && event.msg.message) {
@@ -171,13 +187,10 @@ const promptStream = (
   Stream.fromEffect(
     Effect.gen(function* () {
       // Map LLM options to Codex-specific options
-      // Use default model (gpt-5) for both cases since other variants are not supported
-      const model: CodexModel = 'gpt-5'
       const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
       return yield* buildCommand(input, {
         ...options,
-        model,
         sandboxMode,
         jsonOutput: false, // Non-JSON for streaming
       })
@@ -202,3 +215,18 @@ const promptStream = (
  * Codex implementation of the LLM service
  */
 export const CodexLLMLive = Layer.succeed(LLMService, LLMService.of({ _tag: 'LLMService', prompt, promptStream }))
+
+const mapHttpMcpToStdio = (mcpConfig: MCPConfig): MCPConfig => {
+  return {
+    ...mcpConfig,
+    mcpServers: Record.map(mcpConfig.mcpServers ?? {}, (value) =>
+      value.type === 'http'
+        ? {
+            type: 'stdio' as const,
+            command: `deebug`,
+            args: ['utils', 'mcp-proxy-http-to-stdio', '--endpoint', value.url],
+          }
+        : value,
+    ),
+  }
+}

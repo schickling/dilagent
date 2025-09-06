@@ -21,7 +21,7 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 
 ## MCP Server
 
-- Use the MCP server \`kvStore\` to update the experiment manager about your progress and results.
+- Use the MCP server \`stateStore\` to update the experiment manager about your progress and results.
 
 // TODO
 // 
@@ -33,7 +33,7 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 - The root cause is identified
 - The root cause is reproducible
 - The root cause is documented in the \`report.md\` file
-- The MCP server \`kvStore\` is updated with the experiment results
+- The MCP server \`stateStore\` is updated with the experiment results
 - The root cause has been counter-tested with counter hypothesis
 
 `
