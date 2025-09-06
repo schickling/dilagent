@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc --build",
-    "dev": "bun src/index.ts",
+    "dev": "bun src/main.ts",
     "test": "vitest"
   },
   "dependencies": {

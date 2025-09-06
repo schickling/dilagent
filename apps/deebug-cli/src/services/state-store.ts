@@ -1,5 +1,5 @@
 import { Effect, Ref, Schema } from 'effect'
-import { ExperimentResult, ExperimentStatusUpdate } from '../schema.ts'
+import { ExperimentResult, ExperimentStatusUpdate } from '../schemas/experiment.ts'
 
 const schema = Schema.Union(ExperimentResult, ExperimentStatusUpdate)
 

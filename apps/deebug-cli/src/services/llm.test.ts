@@ -31,7 +31,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
     runtime = ManagedRuntime.make(
       Layer.mergeAll(
         layer,
-        StateStore.Default,
         createMcpServerLayer(3457).pipe(Layer.provideMerge(StateStore.Default)),
         NodeContext.layer,
       ).pipe(Layer.orDie),
@@ -209,27 +208,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
       mcpServers: {
         stateStore: { type: 'http' as const, url: 'http://localhost:3457/mcp' },
       },
-    }
-
-    // Helper function to handle expected CLI errors
-    const handleExpectedCliErrors = (error: unknown) => {
-      const errorMessage = String(error)
-      const expectedErrors = [
-        'Failed to parse Claude CLI JSON response',
-        'Claude CLI returned unexpected response format',
-        'Codex CLI returned empty response',
-        'No agent message found in Codex response',
-        'Failed to stream from Claude CLI',
-      ]
-
-      const isExpectedError = expectedErrors.some((expectedError) => errorMessage.includes(expectedError))
-
-      if (isExpectedError) {
-        console.log('✅ MCP tool test passed - CLI tools not configured (expected)')
-        return Effect.succeed('CLI tools not configured - test passed')
-      } else {
-        return Effect.fail(error)
-      }
     }
 
     it('executes state.set tool and stores data', async () => {

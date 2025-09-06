@@ -1,6 +1,6 @@
 import { AiTool, AiToolkit, McpServer } from '@effect/ai'
 import { Console, Effect, Layer, Schema } from 'effect'
-import { ExperimentResult, ExperimentStatusUpdate } from '../schema.ts'
+import { ExperimentResult, ExperimentStatusUpdate } from '../schemas/experiment.ts'
 import { StateStore } from './state-store.js'
 
 const GetTool = AiTool.make('state.get', {

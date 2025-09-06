@@ -18,8 +18,10 @@ export const createJsonFileLogger = (filePath: string) => Logger.jsonLogger.pipe
  */
 export const createFileLoggerLayer = (
   filePath: string,
-  { replace, format }: { replace?: boolean; format?: 'logfmt' | 'json' } = {},
+  { replace, format }: { replace?: boolean | Logger.Logger<any, any>; format?: 'logfmt' | 'json' } = {},
 ) => {
   const logger = format === 'logfmt' ? createFileLogger(filePath) : createJsonFileLogger(filePath)
-  return replace ? Logger.replaceScoped(Logger.defaultLogger, logger) : Logger.addEffect(logger)
+  return replace
+    ? Logger.replaceScoped(Logger.isLogger(replace) ? replace : Logger.defaultLogger, logger)
+    : Logger.addEffect(logger)
 }

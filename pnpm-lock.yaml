@@ -12,8 +12,8 @@ importers:
         specifier: ^2.2.2
         version: 2.2.2
       '@openai/codex':
-        specifier: ^0.29.0
-        version: 0.29.0
+        specifier: ^0.30.0
+        version: 0.30.0
       typescript:
         specifier: ^5.9.2
         version: 5.9.2
@@ -379,8 +379,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@openai/codex@0.29.0':
-    resolution: {integrity: sha512-bBHkCiBvEEdh5EUHcZHdR4rKLkhpCv8u5WvknJZi11jeGviTfVt/KD6tiAOE7lCELkfbtURrtwG/a/f9a0JZJA==}
+  '@openai/codex@0.30.0':
+    resolution: {integrity: sha512-mlGjiePjbJm52coSQsGxLuoVOjvvo86Rbw7kdFh1ZxCtMZHfcyK8jFJLBrc4O2HkOs/uWjP46PJLm/iRAvrxEA==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -1189,7 +1189,7 @@ snapshots:
   '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.3':
     optional: true
 
-  '@openai/codex@0.29.0':
+  '@openai/codex@0.30.0':
     dependencies:
       '@vscode/ripgrep': 1.15.14
     transitivePeerDependencies:

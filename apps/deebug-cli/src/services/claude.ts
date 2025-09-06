@@ -2,7 +2,7 @@ import { Command } from '@effect/platform'
 import type * as CommandExecutor from '@effect/platform/CommandExecutor'
 import type { PlatformError } from '@effect/platform/Error'
 import { Effect, Layer, Schema, Stream } from 'effect'
-import { ResultMessageSchema } from '../types/claude-code-protocol.ts'
+import { ResultMessageSchema } from '../schemas/claude-code-protocol.ts'
 import { logDuration } from '../utils/Effect.ts'
 import { LLMError, type LLMOptions, LLMService, type MCPConfig } from './llm.ts'
 
@@ -49,7 +49,7 @@ const buildCommand = (
     args.push('--dangerously-skip-permissions')
   }
 
-  console.log('claude command', `echo ${JSON.stringify(input)} | claude ${args.join(' ')}`)
+  // console.log('claude command', `echo ${JSON.stringify(input)} | claude ${args.join(' ')}`)
 
   const inputEcho = Command.make('echo', JSON.stringify(input))
 

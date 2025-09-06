@@ -1,7 +1,7 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { FileSystem } from '@effect/platform'
-import { Effect, Option, Stream } from 'effect'
+import { Effect, Layer, Logger, Option, Stream } from 'effect'
 import { ClaudeLLMLive } from '../services/claude.ts'
 import { CodexLLMLive } from '../services/codex.ts'
 import { createFileLoggerLayer } from '../services/file-logger.ts'
@@ -56,12 +56,16 @@ export const experimentCommand = Cli.Command.make(
       Effect.withSpan('experiment-command'),
       // Additionally stream the log output to a file
       Effect.provide(
-        createFileLoggerLayer(path.resolve(worktree, 'experiment.log'), {
-          replace: showLogsOption._tag === 'None',
-          format: 'logfmt',
-        }),
+        Layer.mergeAll(
+          createFileLoggerLayer(path.resolve(worktree, 'experiment.log'), {
+            // Given we're configuring the prettyLogger in main.ts, we need to replace it with the file logger
+            replace:
+              showLogsOption._tag === 'None' || showLogsOption.value === false ? Logger.prettyLoggerDefault : false,
+            format: 'logfmt',
+          }),
+          llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
+        ),
       ),
-      Effect.provide(llm === 'claude' ? ClaudeLLMLive : CodexLLMLive),
     ),
 )
 

@@ -19,12 +19,15 @@ export class LLMError extends Schema.TaggedError<LLMError>()('LLMError', {
 export interface MCPConfig {
   mcpServers?: Record<
     string,
-    {
-      type: 'http' | 'websocket' | 'stdio'
-      url?: string
-      command?: string
-      args?: string[]
-    }
+    | {
+        type: 'http'
+        url: string
+      }
+    | {
+        type: 'stdio'
+        command: string
+        args: string[]
+      }
   >
   [key: string]: unknown
 }
