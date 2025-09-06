@@ -2,24 +2,9 @@ import { Command } from '@effect/platform'
 import type * as CommandExecutor from '@effect/platform/CommandExecutor'
 import type { PlatformError } from '@effect/platform/Error'
 import { Effect, Layer, Schema, Stream } from 'effect'
+import { ResultMessageSchema } from '../types/claude-code-protocol.ts'
 import { logDuration } from '../utils/Effect.ts'
 import { LLMError, type LLMOptions, LLMService, type MCPConfig } from './llm.ts'
-
-/**
- * Claude CLI response schema
- */
-const ClaudeResponseSchema = Schema.Struct({
-  type: Schema.Literal('result'),
-  subtype: Schema.Literal('success'),
-  is_error: Schema.Boolean,
-  result: Schema.String,
-  session_id: Schema.String,
-  total_cost_usd: Schema.Number,
-  usage: Schema.Struct({
-    input_tokens: Schema.Number,
-    output_tokens: Schema.Number,
-  }),
-})
 
 export const ClaudeModel = Schema.Literal('Opus', 'Sonnet')
 export type ClaudeModel = typeof ClaudeModel.Type
@@ -33,7 +18,6 @@ const buildCommand = (
     model?: ClaudeModel
     outputFormat?: 'json' | 'stream-json'
     systemPrompt?: string
-    verbose?: boolean
     mcpConfig?: MCPConfig
     workingDir?: string
     skipPermissions?: boolean
@@ -47,9 +31,10 @@ const buildCommand = (
 
   if (options.outputFormat) {
     args.push('--output-format', options.outputFormat)
-    if (options.outputFormat === 'stream-json' || options.verbose) {
-      args.push('--verbose')
-    }
+  }
+
+  if (options.outputFormat === 'stream-json') {
+    args.push('--verbose')
   }
 
   if (options.systemPrompt) {
@@ -57,7 +42,7 @@ const buildCommand = (
   }
 
   if (options.mcpConfig) {
-    args.push('--mcp-config', `'${JSON.stringify(options.mcpConfig)}'`)
+    args.push('--mcp-config', JSON.stringify(options.mcpConfig))
   }
 
   if (options.skipPermissions) {
@@ -70,7 +55,6 @@ const buildCommand = (
 
   return inputEcho.pipe(
     Command.pipeTo(Command.make('claude', ...args)),
-    Command.runInShell(true),
     Command.workingDirectory(options.workingDir ?? process.cwd()),
   )
 }
@@ -99,16 +83,20 @@ const prompt = (
       catch: (cause) =>
         new LLMError({
           cause,
-          message: `Failed to parse Claude CLI JSON response: ${output}`,
+          prompt: input,
+          note: `Failed to parse Claude CLI JSON response: ${output}`,
+          rawResponse: output,
         }),
     })
 
-    const validatedResponse = yield* Schema.decodeUnknown(ClaudeResponseSchema)(parsedResponse).pipe(
+    const validatedResponse = yield* Schema.decodeUnknown(ResultMessageSchema)(parsedResponse).pipe(
       Effect.mapError(
         (cause) =>
           new LLMError({
             cause,
-            message: 'Claude CLI returned unexpected response format',
+            prompt: input,
+            note: 'Claude CLI returned unexpected response format',
+            rawResponse: output,
           }),
       ),
     )
@@ -116,12 +104,14 @@ const prompt = (
     if (validatedResponse.is_error) {
       return yield* new LLMError({
         cause: new Error('Claude returned an error response'),
-        message: `Claude error: ${validatedResponse.result}`,
+        note: `Claude error: ${validatedResponse.result}`,
+        prompt: input,
+        rawResponse: output,
       })
     }
 
     // Claude CLI may wrap JSON in markdown code blocks even with tool usage
-    // Extract JSON if it's wrapped in ```json...``` 
+    // Extract JSON if it's wrapped in ```json...```
     const result = validatedResponse.result.trim()
     const jsonMatch = result.match(/^```json\s*\n([\s\S]*?)\n```$/)
     return jsonMatch?.[1]?.trim() ?? result
@@ -149,7 +139,8 @@ const promptStream = (
       (cause) =>
         new LLMError({
           cause,
-          message: 'Failed to stream from Claude CLI',
+          note: 'Failed to stream from Claude CLI',
+          prompt: input,
         }),
     ),
   )

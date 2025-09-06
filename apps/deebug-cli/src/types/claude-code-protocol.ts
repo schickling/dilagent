@@ -1,177 +1,233 @@
-export type ToolName =
-  | "Task"
-  | "Bash"
-  | "Glob"
-  | "Grep"
-  | "LS"
-  | "ExitPlanMode"
-  | "Read"
-  | "Edit"
-  | "MultiEdit"
-  | "Write"
-  | "NotebookEdit"
-  | "WebFetch"
-  | "TodoWrite"
-  | "WebSearch"
-  | "BashOutput"
-  | "KillBash"
-  | `mcp__playwright__${string}`
-  | `mcp__ide__${string}`
+import { Schema } from 'effect'
 
-export type SlashCommand =
-  | "fix-ts-issues"
-  | "request-research"
-  | "add-dir"
-  | "agents"
-  | "clear"
-  | "compact"
-  | "config"
-  | "context"
-  | "cost"
-  | "doctor"
-  | "exit"
-  | "help"
-  | "ide"
-  | "init"
-  | "install-github-app"
-  | "mcp"
-  | "memory"
-  | "migrate-installer"
-  | "model"
-  | "output-style"
-  | "output-style:new"
-  | "pr-comments"
-  | "release-notes"
-  | "resume"
-  | "status"
-  | "statusline"
-  | "todos"
-  | "bug"
-  | "review"
-  | "security-review"
-  | "terminal-setup"
-  | "upgrade"
-  | "vim"
-  | "permissions"
-  | "privacy-settings"
-  | "hooks"
-  | "export"
-  | "logout"
-  | "login"
-  | "bashes"
+export const ToolNameSchema = Schema.Union(
+  Schema.Literal('Task'),
+  Schema.Literal('Bash'),
+  Schema.Literal('Glob'),
+  Schema.Literal('Grep'),
+  Schema.Literal('LS'),
+  Schema.Literal('ExitPlanMode'),
+  Schema.Literal('Read'),
+  Schema.Literal('Edit'),
+  Schema.Literal('MultiEdit'),
+  Schema.Literal('Write'),
+  Schema.Literal('NotebookEdit'),
+  Schema.Literal('WebFetch'),
+  Schema.Literal('TodoWrite'),
+  Schema.Literal('WebSearch'),
+  Schema.Literal('BashOutput'),
+  Schema.Literal('KillBash'),
+  Schema.TemplateLiteral(Schema.Literal('mcp__playwright__'), Schema.String),
+  Schema.TemplateLiteral(Schema.Literal('mcp__ide__'), Schema.String),
+)
 
-export interface McpServer {
-  name: string
-  status: "connected" | "disconnected" | "error"
-}
+export type ToolName = typeof ToolNameSchema.Type
 
-export interface Usage {
-  input_tokens: number
-  cache_creation_input_tokens?: number
-  cache_read_input_tokens?: number
-  output_tokens: number
-  service_tier?: "standard" | "premium"
-  cache_creation?: {
-    ephemeral_1h_input_tokens: number
-    ephemeral_5m_input_tokens: number
-  }
-  server_tool_use?: {
-    web_search_requests: number
-  }
-}
+export const SlashCommandSchema = Schema.Union(
+  Schema.Literal('fix-ts-issues'),
+  Schema.Literal('request-research'),
+  Schema.Literal('add-dir'),
+  Schema.Literal('agents'),
+  Schema.Literal('clear'),
+  Schema.Literal('compact'),
+  Schema.Literal('config'),
+  Schema.Literal('context'),
+  Schema.Literal('cost'),
+  Schema.Literal('doctor'),
+  Schema.Literal('exit'),
+  Schema.Literal('help'),
+  Schema.Literal('ide'),
+  Schema.Literal('init'),
+  Schema.Literal('install-github-app'),
+  Schema.Literal('mcp'),
+  Schema.Literal('memory'),
+  Schema.Literal('migrate-installer'),
+  Schema.Literal('model'),
+  Schema.Literal('output-style'),
+  Schema.Literal('output-style:new'),
+  Schema.Literal('pr-comments'),
+  Schema.Literal('release-notes'),
+  Schema.Literal('resume'),
+  Schema.Literal('status'),
+  Schema.Literal('statusline'),
+  Schema.Literal('todos'),
+  Schema.Literal('bug'),
+  Schema.Literal('review'),
+  Schema.Literal('security-review'),
+  Schema.Literal('terminal-setup'),
+  Schema.Literal('upgrade'),
+  Schema.Literal('vim'),
+  Schema.Literal('permissions'),
+  Schema.Literal('privacy-settings'),
+  Schema.Literal('hooks'),
+  Schema.Literal('export'),
+  Schema.Literal('logout'),
+  Schema.Literal('login'),
+  Schema.Literal('bashes'),
+)
 
-// Content block types for Claude messages
-export interface TextContent {
-  type: "text"
-  text: string
-}
+export type SlashCommand = typeof SlashCommandSchema.Type
 
-export interface ToolUseContent {
-  type: "tool_use"
-  id: string
-  name: string
-  input: Record<string, unknown>
-}
+export const McpServerSchema = Schema.Struct({
+  name: Schema.String,
+  status: Schema.Union(Schema.Literal('connected'), Schema.Literal('disconnected'), Schema.Literal('error')),
+})
 
-export interface ToolResultContent {
-  type: "tool_result"
-  tool_use_id: string
-  content: string
-  is_error?: boolean
-}
+export type McpServer = typeof McpServerSchema.Type
 
-export type MessageContentBlock = TextContent | ToolUseContent | ToolResultContent
+export const CacheCreationSchema = Schema.Struct({
+  ephemeral_1h_input_tokens: Schema.Number,
+  ephemeral_5m_input_tokens: Schema.Number,
+})
 
-export interface MessageContent {
-  role: "user" | "assistant"
-  content: MessageContentBlock[]
-}
+export const ServerToolUseSchema = Schema.Struct({
+  web_search_requests: Schema.Number,
+})
 
-export interface ClaudeMessage {
-  id: string
-  type: "message"
-  role: "user" | "assistant"
-  model?: string
-  content: MessageContentBlock[]
-  stop_reason?: string | null
-  stop_sequence?: string | null
-  usage?: Usage
-}
+export const UsageSchema = Schema.Struct({
+  input_tokens: Schema.Number,
+  cache_creation_input_tokens: Schema.optional(Schema.Number),
+  cache_read_input_tokens: Schema.optional(Schema.Number),
+  output_tokens: Schema.Number,
+  service_tier: Schema.optional(Schema.Union(Schema.Literal('standard'), Schema.Literal('premium'))),
+  cache_creation: Schema.optional(CacheCreationSchema),
+  server_tool_use: Schema.optional(ServerToolUseSchema),
+})
 
-export interface SystemInitMessage {
-  type: "system"
-  subtype: "init"
-  cwd: string
-  session_id: string
-  tools: ToolName[]
-  mcp_servers: McpServer[]
-  model: string
-  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan"
-  slash_commands: SlashCommand[]
-  apiKeySource: "none" | "user" | "project" | "org" | "temporary"
-  output_style: string
-  uuid: string
-}
+export type Usage = typeof UsageSchema.Type
 
-export interface AssistantMessage {
-  type: "assistant"
-  message: ClaudeMessage
-  parent_tool_use_id: string | null
-  session_id: string
-  uuid: string
-}
+export const TextContentSchema = Schema.Struct({
+  type: Schema.Literal('text'),
+  text: Schema.String,
+})
 
-export interface UserMessage {
-  type: "user"
-  message: MessageContent
-  parent_tool_use_id: string | null
-  session_id: string
-  uuid: string
-}
+export type TextContent = typeof TextContentSchema.Type
 
-export interface PermissionDenial {
-  tool_name: string
-  tool_use_id: string
-  tool_input: Record<string, unknown>
-}
+export const ToolUseContentSchema = Schema.Struct({
+  type: Schema.Literal('tool_use'),
+  id: Schema.String,
+  name: Schema.String,
+  input: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+})
 
-export interface ResultMessage {
-  type: "result"
-  subtype: "success" | "error" | "error_max_turns" | "error_during_execution"
-  is_error: boolean
-  duration_ms: number
-  duration_api_ms: number
-  num_turns: number
-  result?: string
-  session_id: string
-  total_cost_usd: number
-  usage: Usage
-  permission_denials: PermissionDenial[]
-  uuid: string
-}
+export type ToolUseContent = typeof ToolUseContentSchema.Type
 
-export type ClaudeCodeMessage =
-  | SystemInitMessage
-  | AssistantMessage
-  | UserMessage
-  | ResultMessage
+export const ToolResultContentSchema = Schema.Struct({
+  type: Schema.Literal('tool_result'),
+  tool_use_id: Schema.String,
+  content: Schema.String,
+  is_error: Schema.optional(Schema.Boolean),
+})
+
+export type ToolResultContent = typeof ToolResultContentSchema.Type
+
+export const MessageContentBlockSchema = Schema.Union(TextContentSchema, ToolUseContentSchema, ToolResultContentSchema)
+
+export type MessageContentBlock = typeof MessageContentBlockSchema.Type
+
+export const MessageContentSchema = Schema.Struct({
+  role: Schema.Union(Schema.Literal('user'), Schema.Literal('assistant')),
+  content: Schema.Array(MessageContentBlockSchema),
+})
+
+export type MessageContent = typeof MessageContentSchema.Type
+
+export const ClaudeMessageSchema = Schema.Struct({
+  id: Schema.String,
+  type: Schema.Literal('message'),
+  role: Schema.Union(Schema.Literal('user'), Schema.Literal('assistant')),
+  model: Schema.optional(Schema.String),
+  content: Schema.Array(MessageContentBlockSchema),
+  stop_reason: Schema.optional(Schema.NullOr(Schema.String)),
+  stop_sequence: Schema.optional(Schema.NullOr(Schema.String)),
+  usage: Schema.optional(UsageSchema),
+})
+
+export type ClaudeMessage = typeof ClaudeMessageSchema.Type
+
+export const SystemInitMessageSchema = Schema.Struct({
+  type: Schema.Literal('system'),
+  subtype: Schema.Literal('init'),
+  cwd: Schema.String,
+  session_id: Schema.String,
+  tools: Schema.Array(ToolNameSchema),
+  mcp_servers: Schema.Array(McpServerSchema),
+  model: Schema.String,
+  permissionMode: Schema.Union(
+    Schema.Literal('default'),
+    Schema.Literal('acceptEdits'),
+    Schema.Literal('bypassPermissions'),
+    Schema.Literal('plan'),
+  ),
+  slash_commands: Schema.Array(SlashCommandSchema),
+  apiKeySource: Schema.Union(
+    Schema.Literal('none'),
+    Schema.Literal('user'),
+    Schema.Literal('project'),
+    Schema.Literal('org'),
+    Schema.Literal('temporary'),
+  ),
+  output_style: Schema.String,
+  uuid: Schema.String,
+})
+
+export type SystemInitMessage = typeof SystemInitMessageSchema.Type
+
+export const AssistantMessageSchema = Schema.Struct({
+  type: Schema.Literal('assistant'),
+  message: ClaudeMessageSchema,
+  parent_tool_use_id: Schema.NullOr(Schema.String),
+  session_id: Schema.String,
+  uuid: Schema.String,
+})
+
+export type AssistantMessage = typeof AssistantMessageSchema.Type
+
+export const UserMessageSchema = Schema.Struct({
+  type: Schema.Literal('user'),
+  message: MessageContentSchema,
+  parent_tool_use_id: Schema.NullOr(Schema.String),
+  session_id: Schema.String,
+  uuid: Schema.String,
+})
+
+export type UserMessage = typeof UserMessageSchema.Type
+
+export const PermissionDenialSchema = Schema.Struct({
+  tool_name: Schema.String,
+  tool_use_id: Schema.String,
+  tool_input: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+})
+
+export type PermissionDenial = typeof PermissionDenialSchema.Type
+
+export const ResultMessageSchema = Schema.Struct({
+  type: Schema.Literal('result'),
+  subtype: Schema.Union(
+    Schema.Literal('success'),
+    Schema.Literal('error'),
+    Schema.Literal('error_max_turns'),
+    Schema.Literal('error_during_execution'),
+  ),
+  is_error: Schema.Boolean,
+  duration_ms: Schema.Number,
+  duration_api_ms: Schema.Number,
+  num_turns: Schema.Number,
+  result: Schema.String,
+  session_id: Schema.String,
+  total_cost_usd: Schema.Number,
+  usage: UsageSchema,
+  permission_denials: Schema.Array(PermissionDenialSchema),
+  uuid: Schema.String,
+})
+
+export type ResultMessage = typeof ResultMessageSchema.Type
+
+export const ClaudeCodeMessageSchema = Schema.Union(
+  SystemInitMessageSchema,
+  AssistantMessageSchema,
+  UserMessageSchema,
+  ResultMessageSchema,
+)
+
+export type ClaudeCodeMessage = typeof ClaudeCodeMessageSchema.Type

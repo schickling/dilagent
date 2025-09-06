@@ -7,8 +7,10 @@ import { Context, type Effect, Schema, type Stream } from 'effect'
  */
 export class LLMError extends Schema.TaggedError<LLMError>()('LLMError', {
   cause: Schema.Defect,
-  message: Schema.String,
+  note: Schema.String,
+  prompt: Schema.String,
   exitCode: Schema.optional(Schema.Number),
+  rawResponse: Schema.optional(Schema.String),
 }) {}
 
 /**
@@ -39,8 +41,6 @@ export interface LLMOptions {
   workingDir?: string
   /** Skip permissions check  */
   skipPermissions?: boolean
-  /** Enable verbose output */
-  verbose?: boolean
   /** MCP configuration */
   mcpConfig?: MCPConfig
 }

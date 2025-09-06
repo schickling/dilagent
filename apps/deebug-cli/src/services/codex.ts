@@ -4,7 +4,7 @@ import { Effect, Layer, Schema, Stream } from 'effect'
 import { logDuration } from '../utils/Effect.ts'
 import { LLMError, type LLMOptions, LLMService } from './llm.ts'
 
-export const CodexModel = Schema.Literal('gpt-5-high', 'gpt-5-medium', 'gpt-5-low', 'gpt-5-minimal')
+export const CodexModel = Schema.Literal('gpt-5', 'gpt-5-high', 'gpt-5-medium', 'gpt-5-low')
 export type CodexModel = typeof CodexModel.Type
 
 export const CodexSandboxMode = Schema.Literal('read-only', 'workspace-write', 'danger-full-access')
@@ -67,7 +67,7 @@ const buildCommand = (
 
     // MCP configuration support via --config flag
     if (options.mcpConfig) {
-      args.push('--config', `'${JSON.stringify(options.mcpConfig)}'`)
+      args.push('--config', JSON.stringify(options.mcpConfig))
     }
 
     // Auto-detect git repo and add skip flag if needed
@@ -92,16 +92,15 @@ const prompt = (
 ): Effect.Effect<string, LLMError | PlatformError, CommandExecutor.CommandExecutor> =>
   Effect.gen(function* () {
     // Map LLM options to Codex-specific options
-    const model: CodexModel = options.useBestModel ? 'gpt-5-high' : 'gpt-5-medium'
+    // Use default model (gpt-5) for both cases since other variants are not supported
+    const model: CodexModel = 'gpt-5'
     const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
     const command = yield* buildCommand(input, {
+      ...options,
       model,
       sandboxMode,
-      ...(options.workingDir && { workingDir: options.workingDir }),
       jsonOutput: true,
-      ...(options.systemPrompt && { systemPrompt: options.systemPrompt }),
-      ...(options.mcpConfig && { mcpConfig: options.mcpConfig }),
     })
 
     const result = yield* Command.string(command).pipe(
@@ -110,7 +109,8 @@ const prompt = (
         (error) =>
           new LLMError({
             cause: error,
-            message: `Failed to execute Codex command: ${error}`,
+            note: `Failed to execute Codex command: ${error}`,
+            prompt: input,
           }),
       ),
     )
@@ -126,12 +126,14 @@ const prompt = (
       return yield* Effect.fail(
         new LLMError({
           cause: new Error('Empty response from Codex CLI'),
-          message: 'Codex CLI returned empty response',
+          note: 'Codex CLI returned empty response',
+          prompt: input,
+          rawResponse: result,
         }),
       )
     }
 
-    // Find the last message or result from the JSON events
+    // Find the last message from the JSON events
     let finalResult = ''
     for (const line of lines) {
       try {
@@ -141,21 +143,22 @@ const prompt = (
         if (event.msg?.type === 'agent_message' && event.msg.message) {
           finalResult = event.msg.message
         }
-        // Fallback to other possible message formats
-        else if (event.content) {
-          finalResult = event.content
-        } else if (event.message) {
-          finalResult = event.message
-        } else if (event.result) {
-          finalResult = event.result
-        }
       } catch {
-        // If JSON parsing fails, treat the line as plain text
-        finalResult = line
+        // If JSON parsing fails for a line, continue processing other lines
       }
     }
 
-    return finalResult || result
+    // If no agent_message was found, return the raw result
+    if (!finalResult) {
+      return yield* new LLMError({
+        cause: new Error('No agent message found in Codex response'),
+        note: `Codex CLI returned no agent_message events. Raw response: ${result}`,
+        prompt: input,
+        rawResponse: result,
+      })
+    }
+
+    return finalResult
   }).pipe(Effect.withSpan('codex.execute'), logDuration('codex.execute'))
 
 /**
@@ -168,16 +171,15 @@ const promptStream = (
   Stream.fromEffect(
     Effect.gen(function* () {
       // Map LLM options to Codex-specific options
-      const model: CodexModel = options.useBestModel ? 'gpt-5-high' : 'gpt-5-medium'
+      // Use default model (gpt-5) for both cases since other variants are not supported
+      const model: CodexModel = 'gpt-5'
       const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
       return yield* buildCommand(input, {
+        ...options,
         model,
         sandboxMode,
-        ...(options.workingDir && { workingDir: options.workingDir }),
         jsonOutput: false, // Non-JSON for streaming
-        ...(options.systemPrompt && { systemPrompt: options.systemPrompt }),
-        ...(options.mcpConfig && { mcpConfig: options.mcpConfig }),
       })
     }),
   ).pipe(
@@ -188,7 +190,8 @@ const promptStream = (
           (cause) =>
             new LLMError({
               cause,
-              message: 'Failed to stream from Codex CLI',
+              note: 'Failed to stream from Codex CLI',
+              prompt: input,
             }),
         ),
       ),

@@ -1,24 +1,5 @@
 import { Schema } from 'effect'
 
-export const ExperimentResult = Schema.Union(
-  Schema.TaggedStruct('Success', {
-    experimentId: Schema.String,
-  }),
-  Schema.TaggedStruct('Error', {
-    experimentId: Schema.String,
-    error: Schema.String,
-  }),
-  Schema.TaggedStruct('Inconclusive', {
-    experimentId: Schema.String,
-    inconclusive: Schema.String,
-  }),
-)
-
-export const ExperimentStatusUpdate = Schema.TaggedStruct('ExperimentStatusUpdate', {
-  experimentId: Schema.String,
-  status: ExperimentResult,
-})
-
 export const ExperimentInput = Schema.TaggedStruct('ExperimentInput', {
   experimentId: Schema.String.annotations({ description: 'Format: E001, E002, ...' }),
   problemTitle: Schema.String.annotations({ description: 'A short title of the problem' }),
@@ -50,3 +31,32 @@ export const GenerateExperimentsInputResult = Schema.Union(
     error: Schema.String,
   }),
 )
+
+export const ExperimentResult = Schema.Union(
+  Schema.TaggedStruct('Proven', {
+    experimentId: Schema.String,
+  }),
+  Schema.TaggedStruct('Disproven', {
+    experimentId: Schema.String,
+    reason: Schema.String.annotations({
+      description: 'A detailed description of the reason the experiment was disproven',
+    }),
+    evidence: Schema.String.annotations({
+      description: 'Clear evidence backing up why the experiment has disproven the root cause hypothesis',
+    }),
+    newExperimentIdeas: Schema.Array(ExperimentInput.omit('experimentId')).annotations({
+      description: 'Based on learnings from the current experiment, a list of new experiment ideas to try.',
+    }),
+  }),
+  Schema.TaggedStruct('Inconclusive', {
+    experimentId: Schema.String,
+    currentStatus: Schema.String,
+  }),
+).annotations({
+  description: 'The final result of an experiment',
+})
+
+export const ExperimentStatusUpdate = Schema.TaggedStruct('ExperimentStatusUpdate', {
+  experimentId: Schema.String,
+  status: ExperimentResult,
+})

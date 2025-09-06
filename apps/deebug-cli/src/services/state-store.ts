@@ -1,7 +1,7 @@
-import { Effect, Ref } from 'effect'
-import { ExperimentResult } from '../schema.ts'
+import { Effect, Ref, Schema } from 'effect'
+import { ExperimentResult, ExperimentStatusUpdate } from '../schema.ts'
 
-const schema = ExperimentResult
+const schema = Schema.Union(ExperimentResult, ExperimentStatusUpdate)
 
 export class StateStore extends Effect.Service<StateStore>()('StateStore', {
   effect: Effect.gen(function* () {
@@ -36,5 +36,4 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
 
     return { get, set, delete: deleteKey, list, clear, keys } as const
   }),
-  dependencies: [],
 }) {}
