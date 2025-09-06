@@ -1,7 +1,7 @@
 import { JSONSchema } from 'effect'
-import { GenerateExperimentsInputResult } from '../schemas/hypothesis.ts'
+import { GenerateHypothesesInputResult } from '../schemas/hypothesis.ts'
 
-const jSchema = JSON.stringify(JSONSchema.make(GenerateExperimentsInputResult))
+const jSchema = JSON.stringify(JSONSchema.make(GenerateHypothesesInputResult))
 
 export const toolEnabledSystemPrompt = `You have access to tools for file operations, bash execution, and other tasks. Use these tools as needed to investigate the problem thoroughly.
 

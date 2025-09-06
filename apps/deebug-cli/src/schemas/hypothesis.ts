@@ -7,18 +7,16 @@ const hypothesisId = Schema.String.annotations({
 
 export const HypothesisInput = Schema.TaggedStruct('HypothesisInput', {
   hypothesisId,
-  problemTitle: Schema.String.annotations({ description: 'A short title of the problem' }),
-  problemDescription: Schema.String.annotations({ description: 'A short description of the problem' }),
+  problemTitle: Schema.String.annotations({ description: 'A short title of the problem hypothesis' }),
+  problemDescription: Schema.String.annotations({ description: 'A short description of the problem hypothesis' }),
   files: Schema.Array(Schema.String).annotations({ description: 'The files that are relevant to the problem' }),
   problemDetails: Schema.String.annotations({
-    description: 'A detailed multi-paragraph description of the problem with all relevant information',
-  }),
-  experimentApproach: Schema.String.annotations({
-    description: 'A detailed description of the experiment approach to test the hypothesis.',
+    description: 'A detailed multi-paragraph description of the problem hypothesis with all relevant information',
   }),
   reproductionSteps: Schema.Array(
     Schema.String.annotations({
-      description: 'A detailed description of the reproduction steps to test the hypothesis.',
+      description:
+        'A detailed description of the reproduction steps to test the hypothesis. Be very specific (e.g. file paths, command line arguments, function calls, etc.).',
     }),
   ),
   observedBehavior: Schema.String.annotations({
@@ -28,14 +26,14 @@ export const HypothesisInput = Schema.TaggedStruct('HypothesisInput', {
 
 export type HypothesisInput = typeof HypothesisInput.Type
 
-export const GenerateExperimentsInputResult = Schema.Union(
+export const GenerateHypothesesInputResult = Schema.Union(
   Schema.TaggedStruct('Success', {
     hypotheses: Schema.Array(HypothesisInput),
   }),
   Schema.TaggedStruct('Error', {
     error: Schema.String,
   }),
-).annotations({ title: 'GenerateExperimentsInputResult' })
+).annotations({ title: 'GenerateHypothesesInputResult' })
 
 export const HypothesisResult = Schema.Union(
   Schema.TaggedStruct('Proven', {

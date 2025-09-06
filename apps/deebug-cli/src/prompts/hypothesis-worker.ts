@@ -6,8 +6,8 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 
 ## Goal
 
-1. Identify the root cause of the problem
-2. Document the root cause and your progress in the \`report.md\` file
+1. Identify the root cause of the problem by following the hypothesis
+2. Update the \`report.md\` file and the \`stateStore\` MCP server with your progress and results.
 
 // TODO ascii art diagram for feedback loop of testing hypotheses
 
@@ -43,18 +43,8 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 `
 
 /** context.md */
-export const makeContextMd = ({
-  problemTitle,
-  problemDescription,
-  problemDetails,
-  reproductionSteps,
-  hypothesisId,
-  experimentApproach,
-  files,
-  observedBehavior,
-  workingDirectory,
-}: HypothesisInput & { workingDirectory: string }) => `\
-## Experiment: \`${hypothesisId}\`
+export const makeContextMd = ({ workingDirectory, ...hypothesis }: HypothesisInput & { workingDirectory: string }) => `\
+## Hypothesis: \`${hypothesis.hypothesisId}\`
 
 ## Instructions
 
@@ -62,34 +52,24 @@ Follow the instructions provided in the \`instructions.md\` file.
 
 ## Working Directory: \`${workingDirectory}\`
 
-## Problem: ${problemTitle}
+## Hypothesis: ${hypothesis.problemTitle}
 
-${problemDescription}
+${hypothesis.problemDescription}
 
 ## Details
 
-${problemDetails}
+${hypothesis.problemDetails}
 
 ## Reproduction Steps
 
-${reproductionSteps.join('\n')}
+${hypothesis.reproductionSteps.map((step, index) => `- ${index + 1}. ${step}`).join('\n')}
 
 ## Observed Behavior
 
-${observedBehavior}
-
-## Files
-
-${files.join('\n')}
-
-## Experiment Approach
-
-Here is an initial approach to the experiment. Refine it as you go.
-
-<experiment-approach>
-${experimentApproach}
-</experiment-approach>
+${hypothesis.observedBehavior}
 
 ## Success Criteria
+
+// TODO add success criteria
 
 `

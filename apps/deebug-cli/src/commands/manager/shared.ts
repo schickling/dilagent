@@ -2,10 +2,10 @@ import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { Command, FileSystem } from '@effect/platform'
 import { Effect, Option, Schema } from 'effect'
-import { instructionsMd, makeContextMd } from '../../prompts/hypothesis.ts'
+import { instructionsMd, makeContextMd } from '../../prompts/hypothesis-worker.ts'
 import { generateHypothesisIdeasPrompt, toolEnabledSystemPrompt } from '../../prompts/manager.ts'
 import {
-  GenerateExperimentsInputResult,
+  GenerateHypothesesInputResult,
   type HypothesisInput,
   HypothesisInput as HypothesisInputSchema,
 } from '../../schemas/hypothesis.ts'
@@ -105,7 +105,8 @@ export const generateHypotheses = ({
       })
       .pipe(
         Effect.timeout('5 minutes'),
-        Effect.andThen(Schema.decode(Schema.parseJson(GenerateExperimentsInputResult))),
+        Effect.andThen(Schema.decode(Schema.parseJson(GenerateHypothesesInputResult))),
+        Effect.withSpan('generateHypotheses'),
       )
 
     if (HypothesisInputResult._tag === 'Error') {
