@@ -1,5 +1,5 @@
 import { JSONSchema } from 'effect'
-import { GenerateExperimentsInputResult } from '../schemas/experiment.ts'
+import { GenerateExperimentsInputResult } from '../schemas/hypothesis.ts'
 
 const jSchema = JSON.stringify(JSONSchema.make(GenerateExperimentsInputResult))
 
@@ -8,14 +8,14 @@ export const toolEnabledSystemPrompt = `You have access to tools for file operat
 CRITICAL: Use tools to investigate, but your final response must be ONLY valid JSON matching the required schema. Do not include any explanatory text, tool usage descriptions, or other content - respond with pure JSON only.`
 
 // TODO: maybe do the reproduction run in a separate directory that's a copy of the context directory?
-export const generateExperimentIdeasPrompt = ({
+export const generateHypothesisIdeasPrompt = ({
   problemPrompt,
   resolvedContextDirectory,
-  experimentCount,
+  hypothesisCount,
 }: {
   problemPrompt: string
   resolvedContextDirectory: string
-  experimentCount?: number
+  hypothesisCount?: number
 }) => `\
 ## Context
 
@@ -34,9 +34,9 @@ ${jSchema}
 ## Instructions
 
 Study the problem in the context directory and generate a list of potential hypotheses for the root cause.
-We will then run experiments to test each hypothesis in depth. Order the hypotheses by likelihood of being the root cause.
+We will then run hypothesiss to test each hypothesis in depth. Order the hypotheses by likelihood of being the root cause.
 
-${experimentCount ? `Generate exactly ${experimentCount} experiment hypotheses.` : 'Generate experiment hypotheses ordered by likelihood of being the root cause.'}
+${hypothesisCount ? `Generate exactly ${hypothesisCount} hypotheses ordered by likelihood of being the root cause.` : 'Generate hypotheses ordered by likelihood of being the root cause.'}
 
 You have access to all tools you need including:
 - Read files in the context directory

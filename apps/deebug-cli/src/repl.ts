@@ -137,11 +137,12 @@ export const runRepl = Effect.gen(function* () {
           const value = args.slice(1).join(' ')
           // For the REPL, we'll create a simple string value
           // In a real scenario, this would need proper type handling
-          const experimentStatus = {
+          const HypothesisStatus = {
             _tag: 'Proven' as const,
-            experimentId: value,
+            hypothesisId: value,
+            nextSteps: [],
           }
-          yield* store.set(key, experimentStatus)
+          yield* store.set(key, HypothesisStatus)
           yield* Console.log(`Set ${key} = ${value}`)
         }
         break

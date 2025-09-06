@@ -2,25 +2,25 @@ import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { Command, FileSystem } from '@effect/platform'
 import { Effect, Option, Schema } from 'effect'
-import { experimentInstructions, makeExperimentContext } from '../../prompts/experiment.ts'
-import { generateExperimentIdeasPrompt, toolEnabledSystemPrompt } from '../../prompts/manager.ts'
+import { instructionsMd, makeContextMd } from '../../prompts/hypothesis.ts'
+import { generateHypothesisIdeasPrompt, toolEnabledSystemPrompt } from '../../prompts/manager.ts'
 import {
-  type ExperimentInput,
-  ExperimentInput as ExperimentInputSchema,
   GenerateExperimentsInputResult,
-} from '../../schemas/experiment.ts'
+  type HypothesisInput,
+  HypothesisInput as HypothesisInputSchema,
+} from '../../schemas/hypothesis.ts'
 import { LLMService } from '../../services/llm.ts'
-import { experimentCommand } from '../experiment.ts'
+import { hypothesisCommand } from '../hypothesis.ts'
 
 // Constants for canonical file structure
 export const DEEBUG_DIR = '.deebug'
-export const EXPERIMENTS_FILE = 'experiments.json'
+export const HYPOTHESES_FILE = 'hypotheses.json'
 export const CONTEXT_DIR = 'context'
-export const HYPOTHESIS_FILE = 'hypothesis-generation.md'
+export const GENERATE_HYPOTHESES_PROMPT_FILE = 'generate-hypotheses.md'
 
 // Reusable CLI option definitions
 export const workingDirectoryOption = Cli.Options.directory('working-directory').pipe(
-  Cli.Options.withDescription('Directory for experiments and results'),
+  Cli.Options.withDescription('Directory for hypotheses and results'),
 )
 
 export const contextDirectoryOption = Cli.Options.directory('context-directory').pipe(
@@ -44,12 +44,12 @@ export const promptOption = Cli.Options.text('prompt').pipe(
 
 export const countOption = Cli.Options.integer('count').pipe(
   Cli.Options.optional,
-  Cli.Options.withDescription('Number of experiments to generate'),
+  Cli.Options.withDescription('Number of hypotheses to generate'),
 )
 
 export const replOption = Cli.Options.boolean('repl').pipe(
   Cli.Options.optional,
-  Cli.Options.withDescription('Start REPL after running experiments'),
+  Cli.Options.withDescription('Start REPL after running hypotheses'),
 )
 
 export const cwdOption = Cli.Options.directory('cwd').pipe(
@@ -58,16 +58,16 @@ export const cwdOption = Cli.Options.directory('cwd').pipe(
 )
 
 // Shared utility functions
-export const generateExperiments = ({
+export const generateHypotheses = ({
   problemPrompt,
   resolvedContextDirectory,
   resolvedWorkingDirectory,
-  experimentCount,
+  hypothesisCount,
 }: {
   problemPrompt: string
   resolvedContextDirectory: string
   resolvedWorkingDirectory: string
-  experimentCount?: number
+  hypothesisCount?: number
 }) =>
   Effect.gen(function* () {
     const llm = yield* LLMService
@@ -83,17 +83,20 @@ export const generateExperiments = ({
     const contextDir = path.join(deebugDir, CONTEXT_DIR)
     yield* Command.make('cp', '-r', resolvedContextDirectory, contextDir).pipe(Command.string)
 
-    const prompt = generateExperimentIdeasPrompt({
+    const prompt = generateHypothesisIdeasPrompt({
       problemPrompt,
       resolvedContextDirectory: contextDir,
-      ...(experimentCount !== undefined && { experimentCount }),
+      ...(hypothesisCount !== undefined && { hypothesisCount }),
     })
 
-    yield* fs.writeFileString(path.join(deebugDir, HYPOTHESIS_FILE), prompt)
+    yield* fs.writeFileString(path.join(deebugDir, GENERATE_HYPOTHESES_PROMPT_FILE), prompt)
 
-    yield* Effect.log(`Using tool-enabled hypothesis generation`)
+    yield* Effect.log(`Generating hypotheses from problem prompt. Trying to reproduce the problem...`)
 
-    const experimentInputResult = yield* llm
+    // TODO do problem reproduction in separate step first (via separate prompt)
+    // refine/standartize reproduction by creating a `repro.ts` file that reproduces the problem
+
+    const HypothesisInputResult = yield* llm
       .prompt(prompt, {
         systemPrompt: toolEnabledSystemPrompt,
         useBestModel: true,
@@ -105,98 +108,98 @@ export const generateExperiments = ({
         Effect.andThen(Schema.decode(Schema.parseJson(GenerateExperimentsInputResult))),
       )
 
-    if (experimentInputResult._tag === 'Error') {
-      return yield* Effect.die(experimentInputResult.error)
+    if (HypothesisInputResult._tag === 'Error') {
+      return yield* Effect.die(HypothesisInputResult.error)
     }
 
-    const experiments = experimentInputResult.experiments
+    const hypotheses = HypothesisInputResult.hypotheses
 
-    // Save experiments to canonical location using Schema
-    const experimentsFile = path.join(deebugDir, EXPERIMENTS_FILE)
-    const experimentsJson = yield* Schema.encode(Schema.parseJson(Schema.Array(ExperimentInputSchema)))(experiments)
-    yield* fs.writeFileString(experimentsFile, experimentsJson)
+    // Save hypotheses to canonical location using Schema
+    const hypothesissFile = path.join(deebugDir, HYPOTHESES_FILE)
+    const hypothesissJson = yield* Schema.encode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypotheses)
+    yield* fs.writeFileString(hypothesissFile, hypothesissJson)
 
-    yield* Effect.log(`Saved ${experiments.length} experiments to ${experimentsFile}`)
+    yield* Effect.log(`Saved ${hypotheses.length} hypotheses to ${hypothesissFile}`)
 
-    // Prepare all experiments immediately after generation
-    yield* Effect.log(`Preparing experiment directories...`)
+    // Prepare all hypotheses immediately after generation
+    yield* Effect.log(`Preparing hypothesis directories...`)
     yield* Effect.forEach(
-      experiments,
-      (experiment) =>
+      hypotheses,
+      (hypothesis) =>
         prepareExperiment({
-          experiment,
+          hypothesis,
           resolvedWorkingDirectory,
           resolvedContextDirectory: contextDir,
         }),
       { concurrency: 4 },
     )
 
-    yield* Effect.log(`All experiments prepared and ready to run`)
+    yield* Effect.log(`All hypotheses prepared and ready to run`)
 
-    return experiments
+    return hypotheses
   }).pipe(Effect.withSpan('generateExperiments'))
 
 export const prepareExperiment = ({
-  experiment,
+  hypothesis,
   resolvedWorkingDirectory,
   resolvedContextDirectory,
 }: {
-  experiment: ExperimentInput
+  hypothesis: HypothesisInput
   resolvedWorkingDirectory: string
   resolvedContextDirectory: string
 }) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const worktree = path.join(resolvedWorkingDirectory, experiment.experimentId)
+    const worktree = path.join(resolvedWorkingDirectory, hypothesis.hypothesisId)
 
     // Copy the canonical context directory as the worktree
     yield* Command.make('cp', '-r', resolvedContextDirectory, worktree).pipe(Command.string)
 
-    yield* fs.writeFileString(path.join(worktree, 'instructions.md'), experimentInstructions)
+    yield* fs.writeFileString(path.join(worktree, 'instructions.md'), instructionsMd)
     yield* fs.writeFileString(
       path.join(worktree, 'context.md'),
-      makeExperimentContext({ ...experiment, workingDirectory: worktree }),
+      makeContextMd({ ...hypothesis, workingDirectory: worktree }),
     )
 
     yield* fs.writeFileString(path.join(worktree, 'report.md'), 'TODO: Create report here')
   }).pipe(Effect.withSpan('prepareExperiment'))
 
-export const runExperiment = ({
+export const runHypothesisWorker = ({
   resolvedWorkingDirectory,
   port,
-  experiment,
+  hypothesis,
   llm,
   cwd,
 }: {
   resolvedWorkingDirectory: string
   port: number
-  experiment: ExperimentInput
+  hypothesis: HypothesisInput
   llm: 'claude' | 'codex'
   cwd: string
 }) =>
   Effect.gen(function* () {
-    const experimentWorkTree = path.join(resolvedWorkingDirectory, experiment.experimentId)
+    const hypothesisWorkTree = path.join(resolvedWorkingDirectory, hypothesis.hypothesisId)
 
     // Experiment is already prepared during generation, just run it
-    yield* experimentCommand.handler({
+    yield* hypothesisCommand.handler({
       managerPort: port,
-      worktree: experimentWorkTree,
+      worktree: hypothesisWorkTree,
       llm,
       showLogsOption: Option.none(),
       cwdOption: Option.some(cwd),
     })
-  }).pipe(Effect.withSpan('runExperiments'))
+  }).pipe(Effect.withSpan('runHypothesisWorkers'))
 
 export const loadExperiments = (resolvedWorkingDirectory: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const deebugDir = path.join(resolvedWorkingDirectory, DEEBUG_DIR)
-    const experimentsFile = path.join(deebugDir, EXPERIMENTS_FILE)
+    const hypothesissFile = path.join(deebugDir, HYPOTHESES_FILE)
 
-    const experimentsJson = yield* fs.readFileString(experimentsFile)
-    const experiments = yield* Schema.decode(Schema.parseJson(Schema.Array(ExperimentInputSchema)))(experimentsJson)
+    const hypothesissJson = yield* fs.readFileString(hypothesissFile)
+    const hypotheses = yield* Schema.decode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypothesissJson)
 
-    yield* Effect.log(`Loaded ${experiments.length} experiments from ${experimentsFile}`)
+    yield* Effect.log(`Loaded ${hypotheses.length} hypotheses from ${hypothesissFile}`)
 
-    return experiments
+    return hypotheses
   }).pipe(Effect.withSpan('loadExperiments'))

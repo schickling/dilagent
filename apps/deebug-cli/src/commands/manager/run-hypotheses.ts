@@ -5,7 +5,7 @@ import { runRepl } from '../../repl.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
 import { getFreePort } from '../../services/free-port.ts'
-import { createMcpServerLayer } from '../../services/mcp-server.js'
+import { createMcpServerLayer } from '../../services/mcp-server.ts'
 import {
   CONTEXT_DIR,
   cwdOption,
@@ -14,12 +14,12 @@ import {
   loadExperiments,
   portOption,
   replOption,
-  runExperiment,
+  runHypothesisWorker,
   workingDirectoryOption,
 } from './shared.ts'
 
-export const runExperimentsCommand = Cli.Command.make(
-  'run-experiments',
+export const runHypothesisWorkersCommand = Cli.Command.make(
+  'run-hypotheses',
   {
     workingDirectory: workingDirectoryOption,
     port: portOption,
@@ -42,20 +42,20 @@ export const runExperimentsCommand = Cli.Command.make(
         yield* Effect.log(`Deebug directory: ${deebugDir}`)
         yield* Effect.log(`Context directory: ${resolvedContextDirectory}`)
 
-        // Load experiments from canonical location
-        const experiments = yield* loadExperiments(resolvedWorkingDirectory)
+        // Load hypotheses from canonical location
+        const hypotheses = yield* loadExperiments(resolvedWorkingDirectory)
 
         yield* Effect.log(
-          `Running ${experiments.length} experiments:\n${experiments.map((e) => `- ${e.experimentId}: ${e.problemTitle}`).join('\n')}`,
+          `Running ${hypotheses.length} hypotheses:\n${hypotheses.map((e) => `- ${e.hypothesisId}: ${e.problemTitle}`).join('\n')}`,
         )
 
         const fiber = yield* Effect.forEach(
-          experiments,
-          (experiment) =>
-            runExperiment({
+          hypotheses,
+          (hypothesis) =>
+            runHypothesisWorker({
               resolvedWorkingDirectory,
               port,
-              experiment,
+              hypothesis,
               llm,
               cwd,
             }),

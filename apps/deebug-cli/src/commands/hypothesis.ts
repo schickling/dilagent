@@ -7,8 +7,8 @@ import { CodexLLMLive } from '../services/codex.ts'
 import { createFileLoggerLayer } from '../services/file-logger.ts'
 import { LLMService } from '../services/llm.ts'
 
-export const experimentCommand = Cli.Command.make(
-  'experiment',
+export const hypothesisCommand = Cli.Command.make(
+  'hypothesis',
   {
     worktree: Cli.Options.directory('worktree-dir'),
     managerPort: Cli.Options.integer('manager-port'),
@@ -53,11 +53,11 @@ export const experimentCommand = Cli.Command.make(
 
       yield* Effect.log('Experiment completed')
     }).pipe(
-      Effect.withSpan('experiment-command'),
+      Effect.withSpan('hypothesis-command'),
       // Additionally stream the log output to a file
       Effect.provide(
         Layer.mergeAll(
-          createFileLoggerLayer(path.resolve(worktree, 'experiment.log'), {
+          createFileLoggerLayer(path.resolve(worktree, 'hypothesis.log'), {
             // Given we're configuring the prettyLogger in main.ts, we need to replace it with the file logger
             replace:
               showLogsOption._tag === 'None' || showLogsOption.value === false ? Logger.prettyLoggerDefault : false,

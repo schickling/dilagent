@@ -10,12 +10,12 @@ import {
   contextDirectoryOption,
   countOption,
   cwdOption,
-  generateExperiments,
+  generateHypotheses,
   llmOption,
   portOption,
   promptOption,
   replOption,
-  runExperiment,
+  runHypothesisWorker,
   workingDirectoryOption,
 } from './shared.ts'
 
@@ -52,36 +52,36 @@ export const allCommand = Cli.Command.make(
           onSome: Effect.succeed,
         })
 
-        const experimentCount = Option.getOrElse(count, () => undefined)
+        const hypothesisCount = Option.getOrElse(count, () => undefined)
 
         yield* Effect.log(`Context directory: ${resolvedContextDirectory}`)
         yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
         yield* Effect.log(`Problem: ${problemPrompt}`)
-        if (experimentCount) {
-          yield* Effect.log(`Generating ${experimentCount} experiments`)
+        if (hypothesisCount) {
+          yield* Effect.log(`Generating ${hypothesisCount} hypotheses`)
         }
 
-        // Generate experiments
-        yield* Effect.log(`Generating experiments...`)
-        const experiments = yield* generateExperiments({
+        // Generate hypotheses
+        yield* Effect.log(`Generating hypotheses...`)
+        const hypotheses = yield* generateHypotheses({
           problemPrompt,
           resolvedContextDirectory,
           resolvedWorkingDirectory,
-          ...(experimentCount !== undefined && { experimentCount }),
+          ...(hypothesisCount !== undefined && { hypothesisCount }),
         })
 
         yield* Effect.log(
-          `Running ${experiments.length} experiments:\n${experiments.map((e) => `- ${e.experimentId}: ${e.problemTitle}`).join('\n')}`,
+          `Running ${hypotheses.length} hypotheses:\n${hypotheses.map((e) => `- ${e.hypothesisId}: ${e.problemTitle}`).join('\n')}`,
         )
 
-        // Run experiments
+        // Run hypotheses
         const fiber = yield* Effect.forEach(
-          experiments,
-          (experiment) =>
-            runExperiment({
+          hypotheses,
+          (hypothesis) =>
+            runHypothesisWorker({
               resolvedWorkingDirectory,
               port,
-              experiment,
+              hypothesis,
               llm,
               cwd,
             }),

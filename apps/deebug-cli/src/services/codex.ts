@@ -79,9 +79,10 @@ const buildCommand = (
       // https://github.com/openai/codex/issues/3196
       const mappedMcpConfig = mapHttpMcpToStdio(options.mcpConfig)
       // We need to set the mcp_servers config as TOML-like configuration (no JSON object serialization)
-      for (const [key, value] of Object.entries(mappedMcpConfig.mcpServers ?? {})) {
-        console.log('mapped mcp config', value, toTomlString(value))
-        args.push('--config', `mcp_servers.${key}=${toTomlString(value)}`)
+      for (const [serveryKey, serverConfig] of Object.entries(mappedMcpConfig.mcpServers ?? {})) {
+        for (const [key, value] of Object.entries(serverConfig)) {
+          args.push('--config', `mcp_servers.${serveryKey}.${key}=${toTomlString(value)}`)
+        }
       }
     }
 
@@ -95,7 +96,7 @@ const buildCommand = (
     // Add the prompt as the last argument
     args.push(prompt)
 
-    console.log('codex command:', `codex ${args.map((_) => (_.startsWith('-') ? _ : `'${_}'`)).join(' ')}`)
+    // console.log('codex command:', `codex ${args.map((_) => (_.startsWith('-') ? _ : `'${_}'`)).join(' ')}`)
 
     return Command.make('codex', ...args).pipe(Command.workingDirectory(options.workingDir ?? process.cwd()))
   })
@@ -217,16 +218,24 @@ const promptStream = (
 export const CodexLLMLive = Layer.succeed(LLMService, LLMService.of({ _tag: 'LLMService', prompt, promptStream }))
 
 const mapHttpMcpToStdio = (mcpConfig: MCPConfig): MCPConfig => {
+  const debugCliPath = process.env.DEEBUG_CLI_PATH ?? shouldNeverHappen('DEEBUG_CLI_PATH is not set')
   return {
     ...mcpConfig,
     mcpServers: Record.map(mcpConfig.mcpServers ?? {}, (value) =>
       value.type === 'http'
         ? {
             type: 'stdio' as const,
-            command: `deebug`,
-            args: ['utils', 'mcp-proxy-http-to-stdio', '--endpoint', value.url],
+            command: 'bun',
+            args: [debugCliPath, 'utils', 'mcp-proxy-http-to-stdio', '--endpoint', value.url],
           }
         : value,
     ),
   }
+}
+
+export const shouldNeverHappen = (message: string): never => {
+  console.error('Should never happen:', message)
+  // biome-ignore lint/suspicious/noDebugger: debug
+  debugger
+  throw new Error(`Should never happen: ${message}`)
 }

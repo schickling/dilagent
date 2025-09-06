@@ -220,11 +220,11 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           yield* store.clear()
 
           // Create test data that matches the expected schema
-          const testData = { _tag: 'Proven' as const, experimentId: 'E001' }
+          const testData = { _tag: 'Proven' as const, hypothesisId: 'H001' }
 
           // Prompt to store the value using MCP tools
           const result = yield* llm.prompt(
-            `Use the deebug_state_set tool to store this experiment result: {"_tag": "Proven", "experimentId": "E001"} with key "test-key"`,
+            `Use the deebug_state_set tool to store this experiment result: {"_tag": "Proven", "hypothesisId": "H001"} with key "test-key"`,
             {
               mcpConfig,
               skipPermissions: true,
@@ -251,10 +251,10 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           // Pre-populate the store with test data
           const testData = {
             _tag: 'Disproven' as const,
-            experimentId: 'E002',
+            hypothesisId: 'H002',
             reason: 'Test reason',
             evidence: 'Test evidence',
-            newExperimentIdeas: [],
+            newhypothesisIdeas: [],
           }
           yield* store.set('existing-key', testData)
 
@@ -267,7 +267,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           // Since we provided MCP config, we expect tool usage to work
           expect(typeof result).toBe('string')
           expect(result.length).toBeGreaterThan(0)
-          expect(result).toContain('E002')
+          expect(result).toContain('H002')
           expect(result).toContain('Disproven')
         }),
       )
@@ -281,8 +281,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Clear and populate store with multiple test entries
           yield* store.clear()
-          const testData1 = { _tag: 'Proven' as const, experimentId: 'E003' }
-          const testData2 = { _tag: 'Inconclusive' as const, experimentId: 'E004', currentStatus: 'In progress' }
+          const testData1 = { _tag: 'Proven' as const, hypothesisId: 'H003', nextSteps: [] }
+          const testData2 = { _tag: 'Inconclusive' as const, hypothesisId: 'H004', currentStatus: 'In progress' }
 
           yield* store.set('key1', testData1)
           yield* store.set('key2', testData2)
@@ -298,8 +298,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           expect(result.length).toBeGreaterThan(0)
           expect(result).toContain('key1')
           expect(result).toContain('key2')
-          expect(result).toContain('E003')
-          expect(result).toContain('E004')
+          expect(result).toContain('H003')
+          expect(result).toContain('H004')
         }),
       )
     })
@@ -311,7 +311,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Pre-populate store with test data
-          const testData = { _tag: 'Proven' as const, experimentId: 'E005' }
+          const testData = { _tag: 'Proven' as const, hypothesisId: 'H005', nextSteps: [] }
           yield* store.set('temp-key', testData)
 
           // Verify data is there initially
@@ -346,8 +346,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Clear and populate store with multiple keys
           yield* store.clear()
-          const testData1 = { _tag: 'Proven' as const, experimentId: 'E006' }
-          const testData2 = { _tag: 'Proven' as const, experimentId: 'E007' }
+          const testData1 = { _tag: 'Proven' as const, hypothesisId: 'H006', nextSteps: [] }
+          const testData2 = { _tag: 'Proven' as const, hypothesisId: 'H007', nextSteps: [] }
 
           yield* store.set('alpha-key', testData1)
           yield* store.set('beta-key', testData2)

@@ -43,7 +43,7 @@ export const mcpProxyHttpToStdioCommand = Cli.Command.make(
 
             // Only write response for requests (with id), not notifications
             if (jsonRpcRequest.id !== undefined && result !== null) {
-              process.stdout.write(JSON.stringify(result) + '\n')
+              process.stdout.write(`${JSON.stringify(result)}\n`)
             }
           } catch (error) {
             try {
@@ -58,7 +58,7 @@ export const mcpProxyHttpToStdioCommand = Cli.Command.make(
                   },
                   id: jsonRpcRequest.id,
                 }
-                process.stdout.write(JSON.stringify(errorResponse) + '\n')
+                process.stdout.write(`${JSON.stringify(errorResponse)}\n`)
               }
             } catch (_parseError) {
               // If we can't parse the original request, send a generic error

@@ -7,14 +7,14 @@ import {
   contextDirectoryOption,
   countOption,
   cwdOption,
-  generateExperiments,
+  generateHypotheses,
   llmOption,
   promptOption,
   workingDirectoryOption,
 } from './shared.ts'
 
-export const generateExperimentsCommand = Cli.Command.make(
-  'generate-experiments',
+export const generateHypothesesCommand = Cli.Command.make(
+  'generate-hypotheses',
   {
     contextDirectory: contextDirectoryOption,
     workingDirectory: workingDirectoryOption,
@@ -40,28 +40,28 @@ export const generateExperimentsCommand = Cli.Command.make(
         onSome: Effect.succeed,
       })
 
-      const experimentCount = Option.getOrElse(count, () => undefined)
+      const hypothesisCount = Option.getOrElse(count, () => undefined)
 
       yield* Effect.log(`Context directory: ${resolvedContextDirectory}`)
       yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
       yield* Effect.log(`Problem: ${problemPrompt}`)
-      if (experimentCount) {
-        yield* Effect.log(`Generating ${experimentCount} experiments`)
+      if (hypothesisCount) {
+        yield* Effect.log(`Generating ${hypothesisCount} hypotheses`)
       }
 
-      const experiments = yield* generateExperiments({
+      const hypotheses = yield* generateHypotheses({
         problemPrompt,
         resolvedContextDirectory,
         resolvedWorkingDirectory,
-        ...(experimentCount !== undefined && { experimentCount }),
+        ...(hypothesisCount !== undefined && { hypothesisCount }),
       })
 
       yield* Effect.log(
-        `Generated ${experiments.length} experiments:\n${experiments.map((e) => `- ${e.experimentId}: ${e.problemTitle}`).join('\n')}`,
+        `Generated ${hypotheses.length} hypotheses:\n${hypotheses.map((e) => `- ${e.hypothesisId}: ${e.problemTitle}`).join('\n')}`,
       )
 
       yield* Effect.log(
-        `Experiments saved and ready to run with: deebug manager run-experiments --working-directory ${workingDirectory} --llm ${llm}`,
+        `Experiments saved and ready to run with: deebug manager run-hypotheses --working-directory ${workingDirectory} --llm ${llm}`,
       )
     }).pipe(Effect.provide(llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
 )

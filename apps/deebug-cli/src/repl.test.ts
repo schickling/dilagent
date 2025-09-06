@@ -155,17 +155,17 @@ describe('REPL', () => {
 
     beforeAll(async () => {
       // Populate the state store with test data
-      await runtime.runPromise(store.set('experiment-1', { _tag: 'Proven', experimentId: 'exp-1' }))
+      await runtime.runPromise(store.set('experiment-1', { _tag: 'Proven', hypothesisId: 'exp-1', nextSteps: [] }))
       await runtime.runPromise(
         store.set('experiment-2', {
           _tag: 'Disproven',
-          experimentId: 'exp-2',
+          hypothesisId: 'exp-2',
           reason: 'Test reason',
           evidence: 'Test evidence',
-          newExperimentIdeas: [],
+          newhypothesisIdeas: [],
         }),
       )
-      await runtime.runPromise(store.set('test-key', { _tag: 'Proven', experimentId: 'test-exp' }))
+      await runtime.runPromise(store.set('test-key', { _tag: 'Proven', hypothesisId: 'test-exp', nextSteps: [] }))
 
       completer = createTestCompleter(store, runtime)
     })
@@ -202,7 +202,7 @@ describe('REPL', () => {
     })
 
     it('can store and retrieve experiment results', async () => {
-      const testResult = { _tag: 'Proven' as const, experimentId: 'test-exp-001' }
+      const testResult = { _tag: 'Proven' as const, hypothesisId: 'test-exp-001', nextSteps: [] }
 
       await runtime.runPromise(store.set('my-test-key', testResult))
       const retrieved = await runtime.runPromise(store.get('my-test-key'))
@@ -217,14 +217,14 @@ describe('REPL', () => {
 
     it('can list all entries', async () => {
       await runtime.runPromise(store.clear())
-      await runtime.runPromise(store.set('key1', { _tag: 'Proven', experimentId: 'exp1' }))
+      await runtime.runPromise(store.set('key1', { _tag: 'Proven', hypothesisId: 'exp1', nextSteps: [] }))
       await runtime.runPromise(
         store.set('key2', {
           _tag: 'Disproven',
-          experimentId: 'exp2',
+          hypothesisId: 'exp2',
           reason: 'Test reason',
           evidence: 'Test evidence',
-          newExperimentIdeas: [],
+          newhypothesisIdeas: [],
         }),
       )
 
