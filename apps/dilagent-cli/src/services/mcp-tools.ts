@@ -3,7 +3,7 @@ import { Effect, Layer, Schema } from 'effect'
 import { HypothesisResult, HypothesisStatusUpdate } from '../schemas/hypothesis.ts'
 import { StateStore } from './state-store.js'
 
-const GetTool = AiTool.make('deebug_state_get', {
+const GetTool = AiTool.make('dilagent_state_get', {
   description: 'Get a value from the state store by key',
   parameters: {
     key: Schema.String.annotations({
@@ -13,7 +13,7 @@ const GetTool = AiTool.make('deebug_state_get', {
   success: Schema.Union(HypothesisResult, HypothesisStatusUpdate, Schema.Undefined),
 })
 
-const SetTool = AiTool.make('deebug_state_set', {
+const SetTool = AiTool.make('dilagent_state_set', {
   description: `\
 Set a key-value pair in the state store. The value must be a tagged union.
 
@@ -27,7 +27,7 @@ IMPORTANT: If this tool fails due to schema validation, carefully read the error
   success: Schema.String,
 })
 
-const DeleteTool = AiTool.make('deebug_state_delete', {
+const DeleteTool = AiTool.make('dilagent_state_delete', {
   description: 'Delete a key from the state store',
   parameters: {
     key: Schema.String.annotations({
@@ -37,7 +37,7 @@ const DeleteTool = AiTool.make('deebug_state_delete', {
   success: Schema.Boolean,
 })
 
-const ListTool = AiTool.make('deebug_state_list', {
+const ListTool = AiTool.make('dilagent_state_list', {
   description: 'List all key-value pairs in the state store',
   success: Schema.Struct({
     entries: Schema.Array(
@@ -49,14 +49,14 @@ const ListTool = AiTool.make('deebug_state_list', {
   }),
 })
 
-const KeysTool = AiTool.make('deebug_state_keys', {
+const KeysTool = AiTool.make('dilagent_state_keys', {
   description: 'List all keys in the state store',
   success: Schema.Struct({
     keys: Schema.Array(Schema.String),
   }),
 })
 
-const ClearTool = AiTool.make('deebug_state_clear', {
+const ClearTool = AiTool.make('dilagent_state_clear', {
   description: 'Clear all entries from the state store',
   success: Schema.String,
 })
@@ -67,57 +67,57 @@ const makeHandlers = Effect.gen(function* () {
   const store = yield* StateStore
 
   return toolkit.of({
-    deebug_state_get: ({ key }) =>
+    dilagent_state_get: ({ key }) =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] deebug_state_get called with key: "${key}"`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_get called with key: "${key}"`)
         const value = yield* store.get(key)
-        yield* Effect.logDebug(`[MCP] deebug_state_get returning: ${value ?? 'undefined'}`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_get returning: ${value ?? 'undefined'}`)
         return value ?? undefined
       }),
 
-    deebug_state_set: ({ key, value }) =>
+    dilagent_state_set: ({ key, value }) =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] deebug_state_set called with key: "${key}", value: "${JSON.stringify(value)}"`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_set called with key: "${key}", value: "${JSON.stringify(value)}"`)
 
         yield* store.set(key, value)
 
         const message = `Set ${key} successfully`
-        yield* Effect.logDebug(`[MCP] deebug_state_set returning: ${message}`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_set returning: ${message}`)
         return message
       }),
 
-    deebug_state_delete: ({ key }) =>
+    dilagent_state_delete: ({ key }) =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] deebug_state_delete called with key: "${key}"`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_delete called with key: "${key}"`)
         const result = yield* store.delete(key)
-        yield* Effect.logDebug(`[MCP] deebug_state_delete returning: ${result}`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_delete returning: ${result}`)
         return result
       }),
 
-    deebug_state_list: () =>
+    dilagent_state_list: () =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] deebug_state_list called`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_list called`)
         const entries = yield* store.list()
-        yield* Effect.logDebug(`[MCP] deebug_state_list found ${entries.length} entries:`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_list found ${entries.length} entries:`)
         for (const entry of entries) {
           yield* Effect.logDebug(`[MCP]   - ${entry.key} = ${entry.value}`)
         }
         return { entries }
       }),
 
-    deebug_state_keys: () =>
+    dilagent_state_keys: () =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] deebug_state_keys called`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_keys called`)
         const keys = yield* store.keys()
-        yield* Effect.logDebug(`[MCP] deebug_state_keys returning ${keys.length} keys: ${keys.join(', ')}`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_keys returning ${keys.length} keys: ${keys.join(', ')}`)
         return { keys }
       }),
 
-    deebug_state_clear: () =>
+    dilagent_state_clear: () =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] deebug_state_clear called`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_clear called`)
         yield* store.clear()
-        yield* Effect.logDebug(`[MCP] deebug_state_clear completed`)
+        yield* Effect.logDebug(`[MCP] dilagent_state_clear completed`)
         return 'State store cleared'
       }),
   })

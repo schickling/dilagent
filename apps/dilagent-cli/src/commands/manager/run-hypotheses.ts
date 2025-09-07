@@ -9,7 +9,7 @@ import { createMcpServerLayer } from '../../services/mcp-server.ts'
 import {
   CONTEXT_DIR,
   cwdOption,
-  DEEBUG_DIR,
+  DILAGENT_DIR,
   llmOption,
   loadExperiments,
   portOption,
@@ -35,7 +35,7 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
       return yield* Effect.gen(function* () {
         const cwd = Option.getOrElse(cwdOption, () => process.cwd())
         const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
-        const deebugDir = path.join(resolvedWorkingDirectory, DEEBUG_DIR)
+        const deebugDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
         const resolvedContextDirectory = path.join(deebugDir, CONTEXT_DIR)
 
         yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)

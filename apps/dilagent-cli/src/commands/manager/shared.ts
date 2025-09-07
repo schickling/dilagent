@@ -23,7 +23,7 @@ import { LLMService } from '../../services/llm.ts'
 import { hypothesisCommand } from '../hypothesis.ts'
 
 // Constants for canonical file structure
-export const DEEBUG_DIR = '.deebug'
+export const DILAGENT_DIR = '.dilagent'
 export const HYPOTHESES_FILE = 'hypotheses.json'
 export const CONTEXT_DIR = 'context'
 export const GENERATE_HYPOTHESES_PROMPT_FILE = 'generate-hypotheses.md'
@@ -93,16 +93,16 @@ export const generateHypotheses = ({
 
     yield* fs.makeDirectory(resolvedWorkingDirectory, { recursive: true })
 
-    // Create .deebug directory for internal files
-    const deebugDir = path.join(resolvedWorkingDirectory, DEEBUG_DIR)
-    yield* fs.makeDirectory(deebugDir, { recursive: true })
+    // Create .dilagent directory for internal files
+    const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
+    yield* fs.makeDirectory(dilagentDir, { recursive: true })
 
-    // Copy context directory to canonical location in .deebug
-    const contextDir = path.join(deebugDir, CONTEXT_DIR)
+    // Copy context directory to canonical location in .dilagent
+    const contextDir = path.join(dilagentDir, CONTEXT_DIR)
     yield* Command.make('cp', '-r', resolvedContextDirectory, contextDir).pipe(Command.string)
 
     // Check for existing reproduction results
-    const reproductionFile = path.join(deebugDir, REPRODUCTION_FILE)
+    const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
     const reproduction = yield* fs.readFileString(reproductionFile).pipe(
       Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult))),
       Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
@@ -123,7 +123,7 @@ export const generateHypotheses = ({
             ...(hypothesisCount !== undefined && { hypothesisCount }),
           })
 
-    yield* fs.writeFileString(path.join(deebugDir, GENERATE_HYPOTHESES_PROMPT_FILE), prompt)
+    yield* fs.writeFileString(path.join(dilagentDir, GENERATE_HYPOTHESES_PROMPT_FILE), prompt)
 
     if (reproduction?._tag === 'Success') {
       const typeLabel = {
@@ -148,7 +148,7 @@ export const generateHypotheses = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(deebugDir, 'generate-hypotheses.log'),
+        debugLogPath: path.join(dilagentDir, 'generate-hypotheses.log'),
       })
       .pipe(
         Effect.timeout('15 minutes'),
@@ -163,7 +163,7 @@ export const generateHypotheses = ({
     const hypotheses = HypothesisInputResult.hypotheses
 
     // Save hypotheses to canonical location using Schema
-    const hypothesissFile = path.join(deebugDir, HYPOTHESES_FILE)
+    const hypothesissFile = path.join(dilagentDir, HYPOTHESES_FILE)
     const hypothesissJson = yield* Schema.encode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypotheses)
     yield* fs.writeFileString(hypothesissFile, hypothesissJson)
 
@@ -241,8 +241,8 @@ export const runHypothesisWorker = ({
 export const loadExperiments = (resolvedWorkingDirectory: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const deebugDir = path.join(resolvedWorkingDirectory, DEEBUG_DIR)
-    const hypothesissFile = path.join(deebugDir, HYPOTHESES_FILE)
+    const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
+    const hypothesissFile = path.join(dilagentDir, HYPOTHESES_FILE)
 
     const hypothesissJson = yield* fs.readFileString(hypothesissFile)
     const hypotheses = yield* Schema.decode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypothesissJson)
@@ -271,16 +271,16 @@ export const reproduceIssue = ({
 
     yield* fs.makeDirectory(resolvedWorkingDirectory, { recursive: true })
 
-    // Create .deebug directory for internal files
-    const deebugDir = path.join(resolvedWorkingDirectory, DEEBUG_DIR)
-    yield* fs.makeDirectory(deebugDir, { recursive: true })
+    // Create .dilagent directory for internal files
+    const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
+    yield* fs.makeDirectory(dilagentDir, { recursive: true })
 
-    // Copy context directory to canonical location in .deebug
-    const contextDir = path.join(deebugDir, CONTEXT_DIR)
+    // Copy context directory to canonical location in .dilagent
+    const contextDir = path.join(dilagentDir, CONTEXT_DIR)
     yield* Command.make('cp', '-r', resolvedContextDirectory, contextDir).pipe(Command.string)
 
     // Check if this is a retry attempt
-    const reproductionFile = path.join(deebugDir, REPRODUCTION_FILE)
+    const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
     const previousAttempt = yield* fs.readFileString(reproductionFile).pipe(
       Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult))),
       Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
@@ -310,7 +310,7 @@ export const reproduceIssue = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(deebugDir, REPRODUCTION_LOG_FILE),
+        debugLogPath: path.join(dilagentDir, REPRODUCTION_LOG_FILE),
       })
       .pipe(
         Effect.timeout('20 minutes'),
@@ -324,7 +324,7 @@ export const reproduceIssue = ({
 
     // If successful, also save the repro.ts script
     if (reproductionResult._tag === 'Success') {
-      const reproScriptFile = path.join(deebugDir, REPRODUCTION_SCRIPT_FILE)
+      const reproScriptFile = path.join(dilagentDir, REPRODUCTION_SCRIPT_FILE)
       yield* fs.writeFileString(reproScriptFile, reproductionResult.reproScript)
 
       const typeLabel = {
@@ -356,8 +356,8 @@ export const reproduceIssue = ({
 export const loadReproduction = (resolvedWorkingDirectory: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const deebugDir = path.join(resolvedWorkingDirectory, DEEBUG_DIR)
-    const reproductionFile = path.join(deebugDir, REPRODUCTION_FILE)
+    const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
+    const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
 
     const reproductionJson = yield* fs.readFileString(reproductionFile)
     const reproduction = yield* Schema.decode(Schema.parseJson(ReproductionResult))(reproductionJson)

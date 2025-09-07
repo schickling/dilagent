@@ -3,7 +3,7 @@
   "files": [],
   "references": [
     {
-      "path": "./apps/deebug-cli"
+      "path": "./apps/dilagent-cli"
     }
   ]
 }

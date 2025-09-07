@@ -21,7 +21,7 @@ export const stateClearCommand = Cli.Command.make('state-clear', {}, () =>
             id: 1,
             method: 'tools/call',
             params: {
-              name: 'deebug_state_clear',
+              name: 'dilagent_state_clear',
               arguments: {},
             },
           }),

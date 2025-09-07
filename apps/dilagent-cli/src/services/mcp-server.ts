@@ -9,7 +9,7 @@ export const createMcpServerLayer = (port: number) =>
   Layer.mergeAll(McpToolsLayer, HttpRouter.Default.serve()).pipe(
     Layer.provide(
       McpServer.layerHttp({
-        name: 'Deebug State Manager',
+        name: 'Dilagent State Manager',
         version: '1.0.0',
         path: '/mcp',
       }),

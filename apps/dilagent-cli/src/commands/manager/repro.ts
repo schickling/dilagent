@@ -121,7 +121,7 @@ export const reproCommand = Cli.Command.make(
             yield* Effect.log(`📝 ${result.minimizationNotes}`)
           }
 
-          yield* Effect.log(`📄 Reproduction script saved to: .deebug/repro.ts`)
+          yield* Effect.log(`📄 Reproduction script saved to: .dilagent/repro.ts`)
           break
         }
       }

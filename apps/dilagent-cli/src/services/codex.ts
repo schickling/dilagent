@@ -218,7 +218,7 @@ const promptStream = (
 export const CodexLLMLive = Layer.succeed(LLMService, LLMService.of({ _tag: 'LLMService', prompt, promptStream }))
 
 const mapHttpMcpToStdio = (mcpConfig: MCPConfig): MCPConfig => {
-  const debugCliPath = process.env.DEEBUG_CLI_PATH ?? shouldNeverHappen('DEEBUG_CLI_PATH is not set')
+  const debugCliPath = process.env.DILAGENT_CLI_PATH ?? shouldNeverHappen('DILAGENT_CLI_PATH is not set')
   return {
     ...mcpConfig,
     mcpServers: Record.map(mcpConfig.mcpServers ?? {}, (value) =>

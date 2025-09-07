@@ -1,4 +1,4 @@
-# deebug 🦛
+# dilagent 🦛
 
 Principled, structured debugging and root cause analysis
 
@@ -30,7 +30,7 @@ Principled, structured debugging and root cause analysis
     - research
   - initial hypothesis generation
   - run experiments
-    - spawns `deebug experiment` calls
+    - spawns `dilagent experiment` calls
     - observes experiments
     - spanws new experiments
   - ? patch synthesis

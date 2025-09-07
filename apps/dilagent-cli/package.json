@@ -1,9 +1,9 @@
 {
-  "name": "diligent",
+  "name": "dilagent",
   "version": "0.0.0",
   "type": "module",
   "bin": {
-    "diligent": "./dist/index.js"
+    "dilagent": "./dist/index.js"
   },
   "files": [
     "src",
@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "tsc --build",
-    "bundle": "bun build --target node --outfile dist/diligent src/main.ts && chmod +x dist/diligent",
+    "bundle": "bun build --target node --outfile dist/dilagent src/main.ts && chmod +x dist/dilagent",
     "dev": "bun src/main.ts",
     "test": "vitest"
   },

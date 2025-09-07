@@ -208,7 +208,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
       },
     }
 
-    it('executes deebug_state_set tool and stores data', async () => {
+    it('executes dilagent_state_set tool and stores data', async () => {
       await runtime.runPromise(
         Effect.gen(function* () {
           const llm = yield* LLMService
@@ -222,7 +222,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Prompt to store the value using MCP tools
           const result = yield* llm.prompt(
-            `Use the deebug_state_set tool to store this experiment result: {"_tag": "Proven", "hypothesisId": "H001"} with key "test-key"`,
+            `Use the dilagent_state_set tool to store this experiment result: {"_tag": "Proven", "hypothesisId": "H001"} with key "test-key"`,
             {
               mcpConfig,
               skipPermissions: true,

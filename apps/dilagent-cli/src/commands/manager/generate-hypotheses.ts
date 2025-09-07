@@ -61,7 +61,7 @@ export const generateHypothesesCommand = Cli.Command.make(
       )
 
       yield* Effect.log(
-        `Experiments saved and ready to run with: deebug manager run-hypotheses --working-directory ${workingDirectory} --llm ${llm}`,
+        `Experiments saved and ready to run with: dilagent manager run-hypotheses --working-directory ${workingDirectory} --llm ${llm}`,
       )
     }).pipe(Effect.provide(llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
 )
