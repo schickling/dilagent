@@ -34,8 +34,8 @@ const createReadlinePrompt = (
 
 const printHelp = Console.log(`
 Available commands:
-  list                - List all state store entries (default)
-  clear               - Clear all entries
+  list                - Show all hypotheses and their status (default)
+  clear               - Reset all hypothesis states to pending
   help                - Show this help message
   exit, quit          - Exit the REPL
 `)
@@ -44,6 +44,14 @@ Available commands:
 export interface CompleterStore {
   keys(): Effect.Effect<string[], unknown, never>
 }
+
+// Adapter to make StateStore compatible with CompleterStore for hypothesis IDs
+const createCompleterAdapter = (store: StateStore): CompleterStore => ({
+  keys: () => Effect.gen(function* () {
+    const state = yield* store.getDilagentState()
+    return state.hypotheses.map(h => h.id)
+  })
+})
 
 export const createCompleter =
   (_store: CompleterStore) =>
@@ -62,31 +70,43 @@ export const createCompleter =
     callback(null, [[], line])
   }
 
-const showList = (store: StateStore) =>
+const showHypotheses = (store: StateStore) =>
   Effect.gen(function* () {
-    const entries = yield* store.list()
-    if (entries.length === 0) {
-      yield* Console.log('No entries in state store')
+    const state = yield* store.getDilagentState()
+    if (state.hypotheses.length === 0) {
+      yield* Console.log('No hypotheses in state')
     } else {
-      yield* Console.log('State store entries:')
-      for (const { key, value } of entries) {
-        yield* Console.log(`  ${key} = ${JSON.stringify(value, null, 2)}`)
+      yield* Console.log('Current hypotheses:')
+      for (const hypothesis of state.hypotheses) {
+        const statusIcon = 
+          hypothesis.status === 'completed'
+            ? hypothesis.result === 'proven' ? '✅' 
+              : hypothesis.result === 'disproven' ? '❌'
+              : '❔'
+            : hypothesis.status === 'running' ? '🔄' : '⏸️'
+        
+        yield* Console.log(`  ${statusIcon} ${hypothesis.id}: ${hypothesis.slug}`)
+        yield* Console.log(`     Status: ${hypothesis.status}${hypothesis.result ? ` (${hypothesis.result})` : ''}`)
+        yield* Console.log(`     Branch: ${hypothesis.branch}`)
+        yield* Console.log(`     Worktree: ${hypothesis.worktree}`)
+        yield* Console.log('')
       }
     }
   })
 
 export const runRepl = Effect.gen(function* () {
   const store = yield* StateStore
-  const completer = createCompleter(store)
+  const completerAdapter = createCompleterAdapter(store)
+  const completer = createCompleter(completerAdapter)
   const rl = yield* createReadlinePrompt(completer)
 
-  yield* Console.log('State Manager REPL. Type "help" for commands, "exit" to quit.')
+  yield* Console.log('Hypothesis Manager REPL. Type "help" for commands, "exit" to quit.')
   yield* Console.log('Use arrow up/down to navigate command history.')
-  yield* Console.log('Press Tab for auto-completion of commands.')
-  yield* Console.log('Press Enter to list all entries.\n')
+  yield* Console.log('Press Tab for auto-completion of hypothesis IDs.')
+  yield* Console.log('Press Enter to list all hypotheses.\n')
 
-  // Show list on startup
-  yield* showList(store)
+  // Show hypotheses on startup
+  yield* showHypotheses(store)
 
   while (true) {
     const input = yield* Effect.promise(() => rl.prompt('> '))
@@ -105,17 +125,29 @@ export const runRepl = Effect.gen(function* () {
         break
 
       case 'list':
-        yield* showList(store)
+        yield* showHypotheses(store)
         break
 
       case 'clear':
-        yield* store.clear()
-        yield* Console.log('State store cleared')
+        // Reset all hypotheses to pending state (similar to dilagent_state_clear MCP tool)
+        yield* store.updateDilagentState((state) => ({
+          ...state,
+          hypotheses: state.hypotheses.map(h => ({
+            ...h,
+            status: 'pending' as const,
+            result: undefined,
+            confidence: undefined,
+            startedAt: undefined,
+            completedAt: undefined,
+            executionTimeMs: undefined,
+          })),
+        }))
+        yield* Console.log('All hypotheses reset to pending state')
         break
 
       case '':
         // Empty input runs list command
-        yield* showList(store)
+        yield* showHypotheses(store)
         break
 
       default:

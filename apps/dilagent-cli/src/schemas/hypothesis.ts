@@ -1,9 +1,5 @@
 import { Schema } from 'effect'
-
-const hypothesisId = Schema.String.annotations({
-  title: 'hypothesisId',
-  description: 'Format: H001, H002, ...',
-})
+import { hypothesisId } from './file-management.ts'
 
 export const HypothesisInput = Schema.TaggedStruct('HypothesisInput', {
   hypothesisId,
@@ -51,12 +47,7 @@ export const HypothesisResult = Schema.Union(
     rootCauses: Schema.optional(
       Schema.Array(
         Schema.Struct({
-          type: Schema.Union(
-            Schema.Literal('tooling'),
-            Schema.Literal('algorithmic'),
-            Schema.Literal('configuration'),
-            Schema.Literal('environmental'),
-          ),
+          type: Schema.Literal('tooling', 'algorithmic', 'configuration', 'environmental'),
           description: Schema.String,
         }),
       ),

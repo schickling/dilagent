@@ -6,10 +6,10 @@ import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
 import { getFreePort } from '../../services/free-port.ts'
 import { createMcpServerLayer } from '../../services/mcp-server.ts'
+import { TimelineService } from '../../services/timeline.ts'
+import { WorkingDirService } from '../../services/working-dir.ts'
 import {
-  CONTEXT_DIR,
   cwdOption,
-  DILAGENT_DIR,
   llmOption,
   loadExperiments,
   portOption,
@@ -35,12 +35,21 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
       return yield* Effect.gen(function* () {
         const cwd = Option.getOrElse(cwdOption, () => process.cwd())
         const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
-        const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
-        const resolvedContextDirectory = path.join(dilagentDir, CONTEXT_DIR)
+        const workingDirService = yield* WorkingDirService
+        const timelineService = yield* TimelineService
+
+        const paths = workingDirService.getPaths(resolvedWorkingDirectory)
+        const resolvedContextDirectory = paths.contextRepo
 
         yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
-        yield* Effect.log(`Dilagent directory: ${dilagentDir}`)
+        yield* Effect.log(`Dilagent directory: ${paths.dilagent}`)
         yield* Effect.log(`Context directory: ${resolvedContextDirectory}`)
+
+        // Record timeline event
+        yield* timelineService.recordEvent({
+          event: 'Hypothesis testing phase started',
+          phase: 'hypothesis-testing',
+        })
 
         // Load hypotheses from canonical location
         const hypotheses = yield* loadExperiments(resolvedWorkingDirectory)

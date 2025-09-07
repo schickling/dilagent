@@ -1,6 +1,6 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
-import { Command, FileSystem } from '@effect/platform'
+import { FileSystem } from '@effect/platform'
 import { Effect, Option, Schema } from 'effect'
 import { instructionsMd, makeContextMd } from '../../prompts/hypothesis-worker.ts'
 import {
@@ -19,7 +19,11 @@ import {
   HypothesisInput as HypothesisInputSchema,
 } from '../../schemas/hypothesis.ts'
 import { ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
+import { GitManagerService } from '../../services/git-manager.ts'
 import { LLMService } from '../../services/llm.ts'
+import { StateStore } from '../../services/state-store.ts'
+import { TimelineService } from '../../services/timeline.ts'
+import { WorkingDirService } from '../../services/working-dir.ts'
 import { hypothesisCommand } from '../hypothesis.ts'
 
 // Constants for canonical file structure
@@ -75,6 +79,16 @@ export const flakyOption = Cli.Options.boolean('flaky').pipe(
   Cli.Options.withDescription('Indicate that this is a flaky/intermittent bug'),
 )
 
+// Helper functions
+const generateRunSlug = (context?: string): string => {
+  const date = new Date().toISOString().split('T')[0]! // YYYY-MM-DD, guaranteed to exist
+  if (context) {
+    const sanitizedContext = context.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    return `${date}-${sanitizedContext}`
+  }
+  return date
+}
+
 // Shared utility functions
 export const generateHypotheses = ({
   problemPrompt,
@@ -90,20 +104,27 @@ export const generateHypotheses = ({
   Effect.gen(function* () {
     const llm = yield* LLMService
     const fs = yield* FileSystem.FileSystem
+    const workingDirService = yield* WorkingDirService
+    const timelineService = yield* TimelineService
+    const gitManager = yield* GitManagerService
 
-    yield* fs.makeDirectory(resolvedWorkingDirectory, { recursive: true })
+    // Initialize working directory structure if not exists
+    yield* workingDirService.initializeDilagentStructure(resolvedWorkingDirectory)
 
-    // Create .dilagent directory for internal files
-    const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
-    yield* fs.makeDirectory(dilagentDir, { recursive: true })
+    // Setup context directory as git repository
+    const runId = generateRunSlug('hypothesis-generation')
+    yield* gitManager.setupContextRepo(resolvedContextDirectory, resolvedWorkingDirectory, runId)
+    const contextDir = workingDirService.getPaths(resolvedWorkingDirectory).contextRepo
 
-    // Copy context directory to canonical location in .dilagent
-    const contextDir = path.join(dilagentDir, CONTEXT_DIR)
-    yield* Command.make('cp', '-r', resolvedContextDirectory, contextDir).pipe(Command.string)
+    // Record timeline event
+    yield* timelineService.recordEvent({
+      event: 'Hypothesis generation phase started',
+      phase: 'hypothesis-generation',
+    })
 
     // Check for existing reproduction results
-    const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
-    const reproduction = yield* fs.readFileString(reproductionFile).pipe(
+    const artifactsDir = workingDirService.getPaths(resolvedWorkingDirectory).artifacts
+    const reproduction = yield* fs.readFileString(path.join(artifactsDir, 'reproduction.json')).pipe(
       Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult, { space: 2 }))),
       Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
     )
@@ -123,7 +144,7 @@ export const generateHypotheses = ({
             ...(hypothesisCount !== undefined && { hypothesisCount }),
           })
 
-    yield* fs.writeFileString(path.join(dilagentDir, GENERATE_HYPOTHESES_PROMPT_FILE), prompt)
+    yield* fs.writeFileString(path.join(artifactsDir, 'generate-hypotheses.md'), prompt)
 
     if (reproduction?._tag === 'Success') {
       const typeLabel = {
@@ -148,7 +169,7 @@ export const generateHypotheses = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(dilagentDir, 'generate-hypotheses.log'),
+        debugLogPath: path.join(workingDirService.getPaths(resolvedWorkingDirectory).logs, 'generate-hypotheses.log'),
       })
       .pipe(
         Effect.timeout('15 minutes'),
@@ -162,12 +183,18 @@ export const generateHypotheses = ({
 
     const hypotheses = HypothesisInputResult.hypotheses
 
-    // Save hypotheses to canonical location using Schema
-    const hypothesissFile = path.join(dilagentDir, HYPOTHESES_FILE)
-    const hypothesissJson = yield* Schema.encode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypotheses)
-    yield* fs.writeFileString(hypothesissFile, hypothesissJson)
+    // Save hypotheses to artifacts directory
+    const hypothesesFile = path.join(artifactsDir, 'hypotheses.json')
+    const hypothesesJson = yield* Schema.encode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypotheses)
+    yield* fs.writeFileString(hypothesesFile, hypothesesJson)
 
-    yield* Effect.log(`Saved ${hypotheses.length} hypotheses to ${hypothesissFile}`)
+    yield* timelineService.recordEvent({
+      event: `Generated ${hypotheses.length} hypotheses`,
+      phase: 'hypothesis-generation',
+      metadata: { count: hypotheses.length },
+    })
+
+    yield* Effect.log(`Saved ${hypotheses.length} hypotheses to ${hypothesesFile}`)
 
     // Prepare all hypotheses immediately after generation
     yield* Effect.log(`Preparing hypothesis directories...`)
@@ -190,7 +217,6 @@ export const generateHypotheses = ({
 export const prepareExperiment = ({
   hypothesis,
   resolvedWorkingDirectory,
-  resolvedContextDirectory,
 }: {
   hypothesis: HypothesisInput
   resolvedWorkingDirectory: string
@@ -198,10 +224,16 @@ export const prepareExperiment = ({
 }) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const worktree = path.join(resolvedWorkingDirectory, hypothesis.hypothesisId)
+    const gitManager = yield* GitManagerService
 
-    // Copy the canonical context directory as the worktree
-    yield* Command.make('cp', '-r', resolvedContextDirectory, worktree).pipe(Command.string)
+    // Generate runSlug and hypothesis slug for git branching
+    const runId = generateRunSlug('hypothesis-testing')
+    const hypothesisSlug = hypothesis.problemTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+
+    // Create git worktree for this hypothesis
+    yield* gitManager.createHypothesisWorktree(resolvedWorkingDirectory, runId, hypothesis.hypothesisId, hypothesisSlug)
+
+    const worktree = path.join(resolvedWorkingDirectory, `${hypothesis.hypothesisId}-${hypothesisSlug}`)
 
     yield* fs.writeFileString(path.join(worktree, 'instructions.md'), instructionsMd)
     yield* fs.writeFileString(
@@ -241,13 +273,14 @@ export const runHypothesisWorker = ({
 export const loadExperiments = (resolvedWorkingDirectory: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
-    const hypothesissFile = path.join(dilagentDir, HYPOTHESES_FILE)
+    const workingDirService = yield* WorkingDirService
 
-    const hypothesissJson = yield* fs.readFileString(hypothesissFile)
-    const hypotheses = yield* Schema.decode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypothesissJson)
+    const hypothesesFile = path.join(workingDirService.getPaths(resolvedWorkingDirectory).artifacts, 'hypotheses.json')
 
-    yield* Effect.log(`Loaded ${hypotheses.length} hypotheses from ${hypothesissFile}`)
+    const hypothesesJson = yield* fs.readFileString(hypothesesFile)
+    const hypotheses = yield* Schema.decode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypothesesJson)
+
+    yield* Effect.log(`Loaded ${hypotheses.length} hypotheses from ${hypothesesFile}`)
 
     return hypotheses
   }).pipe(Effect.withSpan('loadExperiments'))
@@ -268,32 +301,43 @@ export const reproduceIssue = ({
   Effect.gen(function* () {
     const llm = yield* LLMService
     const fs = yield* FileSystem.FileSystem
+    const workingDirService = yield* WorkingDirService
+    const _stateStore = yield* StateStore
+    const timelineService = yield* TimelineService
+    const gitManager = yield* GitManagerService
 
-    yield* fs.makeDirectory(resolvedWorkingDirectory, { recursive: true })
+    // Initialize working directory structure
+    yield* workingDirService.initializeDilagentStructure(resolvedWorkingDirectory)
 
-    // Create .dilagent directory for internal files
-    const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
-    yield* fs.makeDirectory(dilagentDir, { recursive: true })
+    // Generate run ID and setup context directory as git repository
+    const runId = generateRunSlug('reproduction')
+    yield* gitManager.setupContextRepo(resolvedContextDirectory, resolvedWorkingDirectory, runId)
+    const contextDir = workingDirService.getPaths(resolvedWorkingDirectory).contextRepo
 
-    // Copy context directory to canonical location in .dilagent
-    const contextDir = path.join(dilagentDir, CONTEXT_DIR)
-    yield* Command.make('cp', '-r', resolvedContextDirectory, contextDir).pipe(Command.string)
+    // Initialize timeline
+    yield* timelineService.initializeTimeline(resolvedWorkingDirectory, runId)
+    yield* timelineService.enableAutoPersist()
+    yield* timelineService.recordEvent({
+      event: 'Reproduction phase started',
+      phase: 'reproduction',
+    })
 
-    // Check if this is a retry attempt
-    const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
-    const previousAttempt = yield* fs.readFileString(reproductionFile).pipe(
-      Effect.andThen(Schema.decode(ReproductionResultFile)),
-      Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
-    )
+    // Check for existing reproduction results
+    const reproductionJson = yield* fs
+      .readFileString(path.join(workingDirService.getPaths(resolvedWorkingDirectory).artifacts, 'reproduction.json'))
+      .pipe(
+        Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResultFile))),
+        Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
+      )
 
     // Determine which prompt to use
     const prompt =
-      previousAttempt?._tag === 'NeedMoreInfo' && userFeedback
+      reproductionJson?._tag === 'NeedMoreInfo' && userFeedback
         ? refineReproductionPrompt({
             problemPrompt,
             contextDirectory: contextDir,
             isFlaky,
-            previousAttempt,
+            previousAttempt: reproductionJson,
             userFeedback,
           })
         : initialReproductionPrompt({
@@ -303,6 +347,10 @@ export const reproduceIssue = ({
           })
 
     yield* Effect.log('Starting issue reproduction...')
+    yield* timelineService.recordEvent({
+      event: 'LLM reproduction request started',
+      phase: 'reproduction',
+    })
 
     const reproductionResult = yield* llm
       .prompt(prompt, {
@@ -310,7 +358,7 @@ export const reproduceIssue = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(dilagentDir, REPRODUCTION_LOG_FILE),
+        debugLogPath: path.join(workingDirService.getPaths(resolvedWorkingDirectory).logs, 'reproduction.log'),
       })
       .pipe(
         Effect.timeout('20 minutes'),
@@ -318,13 +366,25 @@ export const reproduceIssue = ({
         Effect.withSpan('reproduceIssue'),
       )
 
-    // Save reproduction result
-    const reproductionJson = yield* Schema.encode(ReproductionResultFile)(reproductionResult)
-    yield* fs.writeFileString(reproductionFile, reproductionJson)
+    // Save reproduction result as artifact
+    const artifactsDir = workingDirService.getPaths(resolvedWorkingDirectory).artifacts
+    const reproductionFile = path.join(artifactsDir, 'reproduction.json')
+    const reproductionJsonContent = yield* Schema.encode(Schema.parseJson(ReproductionResultFile))(reproductionResult)
+    yield* fs.writeFileString(reproductionFile, reproductionJsonContent)
+
+    // Record timeline event
+    yield* timelineService.recordEvent({
+      event: `Reproduction ${reproductionResult._tag.toLowerCase()}`,
+      phase: 'reproduction',
+      metadata:
+        reproductionResult._tag === 'Success'
+          ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
+          : undefined,
+    })
 
     // If successful, also save the repro.ts script
     if (reproductionResult._tag === 'Success') {
-      const reproScriptFile = path.join(dilagentDir, REPRODUCTION_SCRIPT_FILE)
+      const reproScriptFile = path.join(artifactsDir, 'repro.ts')
       yield* fs.writeFileString(reproScriptFile, reproductionResult.reproScript)
 
       const typeLabel = {
@@ -356,11 +416,15 @@ export const reproduceIssue = ({
 export const loadReproduction = (resolvedWorkingDirectory: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
-    const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
+    const workingDirService = yield* WorkingDirService
+
+    const reproductionFile = path.join(
+      workingDirService.getPaths(resolvedWorkingDirectory).artifacts,
+      'reproduction.json',
+    )
 
     const reproductionJson = yield* fs.readFileString(reproductionFile)
-    const reproduction = yield* Schema.decode(ReproductionResultFile)(reproductionJson)
+    const reproduction = yield* Schema.decode(Schema.parseJson(ReproductionResultFile))(reproductionJson)
 
     yield* Effect.log(`Loaded reproduction result from ${reproductionFile}`)
 

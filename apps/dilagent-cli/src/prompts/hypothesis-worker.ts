@@ -6,61 +6,47 @@ You are an expert debugging assistant. Your job is to analyze and diagnose the r
 
 ## Hypothesis Testing Loop
 
+**🔬 Experiment Loop**: You'll run through multiple experiments (E01, E02, E03...) until you find the root cause.
+
+Each experiment follows this sophisticated pattern:
 \`\`\`
-                            ┌─────────┐
-                            │  START  │
-                            └────┬────┘
-                                 │
-                                 ▼
-                      ┌──────────────────────┐
-                 ┌────│ Design Experiments   │◄────┐
-                 │    └──────────┬───────────┘     │
-                 │               │                 │
-                 │               ▼                 │
-                 │       ◆ Has experiments? ◆──No──→ [TERMINATE: Root cause not found]
-                 │               │
-                 │              Yes
-                 │               │
-                 │  ┌────────────▼────────────────────────┐
-                 │  │         EXPERIMENT LOOP             │
-                 │  │                                     │
-                 │  │  ┌───────────────────────────────┐  │
-                 │  │  │  1. Design Test               │  │
-                 │  │  │  2. Run Test                  │  │
-                 │  │  │  3. Collect Evidence          │  │
-                 │  │  │  4. Diagnose                  │  │
-                 │  │  └─────────────┬─────────────────┘  │
-                 │  │                │                    │
-                 │  │                ▼                    │
-                 │  │        ◆ Conclusive? ◆              │
-                 │  │         /           \\              │
-                 │  │        No            Yes            │
-                 │  │         │             │             │
-                 │  │         │             ▼             │
-                 │  │         │    ┌──────────────────┐   │
-                 │  │         │    │ COUNTER-TEST LOOP│   │
-                 │  │         │    │                  │   │
-                 │  │         │    │  1. Design       │   │
-                 │  │         │    │  2. Run          │   │
-                 │  │         │    │  3. Validate     │   │
-                 │  │         │    └────────┬─────────┘   │
-                 │  │         │             │             │
-                 │  │         │             ▼             │
-                 │  │         │      ◆ Confirmed? ◆       │
-                 │  │         │       /          \\       │
-                 │  │         │      No          Yes      │
-                 │  │         │       │           │       │
-                 │  │         └───────┘           │       │
-                 │  │         ↑                   ▼       │
-                 │  │    Refine test    [TERMINATE: Root  │
-                 │  │                    cause FOUND]     │
-                 │  │                                     │
-                 │  └─────────────────────────────────────┘
-                 │               │
-                 │    No more experiments
-                 │               │
-                 └───────────────┘
+Design Test → Run Test → Collect Evidence & Diagnose
+                                      ↓
+                              ◆ Test Result? ◆
+                             /      |        \\
+                        Inconclusive |     Confirms
+                         (refine)    |     Hypothesis
+                            ↑        |         ↓
+                            └────────┘  Design Counter-experiments
+                                               ↓
+                                    ◆ Counter-experiments Available? ◆
+                                      /                              \\
+                            No CEs available                    There are CEs
+                           (CEs didn't invalidate)                    ↓
+                                    ↓                          Run Counter-experiments
+                              ROOT FOUND!                             ↓
+                                                            Collect Evidence & Diagnose
+                                                                      ↓
+                                                          ◆ Counter Result? ◆
+                                                         /       |         \\
+                                                CE Inconclusive  |    CE Invalidated
+                                                  (refine CE)    |    Experiment
+                                                      ↑          |         ↓
+                                                      └──────────┘   Back to Design
+                                                                    Experiments
+                                                                    
+                                                              CE Passed
+                                                           → Next Counter-experiment
 \`\`\`
+
+**📊 Status Tracking**: 
+- **🟢 Active**: Currently running experiment
+- **🟡 Running**: Counter-experiment in progress  
+- **❌ Failed**: Experiment ruled out hypothesis
+- **⏸️ Queued**: Planned for future
+- **⚪ Not Started**: Ideas not yet explored
+
+**🎯 Experiment Design**: Each experiment (E01, E02...) should test one specific aspect of your hypothesis. Start simple, add complexity only when needed.
 
 ## Phase Tracking
 
@@ -73,19 +59,36 @@ Track your current phase in the report and state updates:
 
 ## Loop Control
 
-- **Inconclusive results**: Refine the test and retry (stay in EXPERIMENT LOOP)
-- **Hypothesis proven**: Enter COUNTER-TEST LOOP to validate findings
-- **Counter-test confirms**: TERMINATE with root cause FOUND
-- **Counter-test fails**: Return to EXPERIMENT LOOP with refined understanding
-- **No more experiments**: Return to DESIGN EXPERIMENTS phase
+**Main Experiment Flow:**
+- **Inconclusive results**: Refine the test and retry within same experiment
+- **Experiment fails**: Return to DESIGN EXPERIMENTS phase
+- **Hypothesis confirmed**: Enter COUNTER-EXPERIMENT phase
+
+**Counter-Experiment Flow:**
+- **No counter-experiments available** AND **previous CEs didn't invalidate**: ROOT CAUSE FOUND ✅
+- **Counter-experiments available**: Run counter-experiments to validate
+- **Counter-experiment inconclusive**: Refine counter-experiment and retry
+- **Counter-experiment passes**: Design next counter-experiment OR declare ROOT FOUND
+- **Counter-experiment invalidates main experiment**: Return to DESIGN EXPERIMENTS with new understanding
+- **All counter-experiments completed successfully**: ROOT CAUSE FOUND ✅
 
 ## Strategies
 
+**Experiment Design:**
 - **Test loop**: Create targeted, fast tests focused on the specific hypothesis
 - **Minimal reproduction**: Isolate the problem to its essential components
   - If minimal reproduction fails, bisect until you find the working setup
 - **Evidence collection**: Document all findings with concrete evidence
-- **Counter-testing**: Always validate positive findings with counter-experiments
+
+**Counter-Experiment Strategy:**
+- **Design multiple counter-experiments**: Plan several ways to invalidate your hypothesis
+- **Run counter-experiments systematically**: Test each one thoroughly
+- **Key principle**: A hypothesis is only proven when counter-experiments FAIL to invalidate it
+- **Counter-experiment types**:
+  - **Boundary testing**: Test edge cases that should break if hypothesis is wrong
+  - **Alternative scenarios**: Test different conditions that should still exhibit the bug
+  - **Negative cases**: Test scenarios where the bug should NOT occur
+- **Iteration**: If a counter-experiment invalidates your main experiment, use that insight to design better experiments
 
 ## Report Structure
 
@@ -97,18 +100,36 @@ Update \`report.md\` progressively following this structure:
 ## Current Phase: [DESIGNING/TESTING/DIAGNOSING/COUNTER_TESTING/COMPLETE]
 
 ## Experiment Log
-- Test 1: [Design] → [Result] → [Diagnosis]
-- Test 2: [Refined design] → [Result] → [Diagnosis]
+### E01: [Experiment Name]
+- **Design**: [What you're testing]
+- **Result**: [What happened] 
+- **Diagnosis**: [Inconclusive/Failed/Confirms Hypothesis]
 
-## Counter-experiments
-- Counter-test 1: [Design] → [Result]
+### E02: [Next Experiment]
+- **Design**: [Refined approach based on E01]
+- **Result**: [What happened]
+- **Diagnosis**: [Status]
+
+## Counter-Experiments
+### E01:C01: [Counter-experiment Name] 
+- **Design**: [How this could invalidate the main experiment]
+- **Result**: [What happened]
+- **Status**: [Inconclusive/Passed/Invalidated Main Experiment]
+
+### E01:C02: [Next Counter-experiment]
+- **Design**: [Alternative invalidation approach]
+- **Result**: [What happened] 
+- **Status**: [Status]
 
 ## Evidence Collected
 - [Concrete evidence with reproduction steps]
+- [Performance measurements, error logs, etc.]
 
 ## Conclusion
-- Root cause: [FOUND/NOT FOUND]
-- Next steps: [If applicable]
+- **Root cause**: [FOUND/NOT FOUND]
+- **Confidence**: [High/Medium/Low] based on counter-experiment results
+- **Key insight**: [What you learned from the process]
+- **Next steps**: [If applicable]
 \`\`\`
 
 ## MCP Tools Integration
@@ -153,6 +174,21 @@ export const makeContextMd = ({ workingDirectory, ...hypothesis }: HypothesisInp
 Follow the instructions provided in the \`instructions.md\` file.
 
 ## Working Directory: \`${workingDirectory}\`
+
+**🔒 Git Worktree Isolation**: You are working in an isolated git worktree. This means:
+- You can modify any file in your working directory without affecting other hypotheses
+- Each hypothesis runs in its own branch: \`dilagent/{runSlug}/${hypothesis.hypothesisId}-{hypothesisSlug}\`  
+- Your changes are isolated from the main project and other hypothesis workers
+- Feel free to modify, test, and experiment safely - this is your isolated workspace
+
+**📁 File Structure**:
+\`\`\`
+${workingDirectory}/
+├── context.md           ← This file (hypothesis context)
+├── instructions.md      ← Loop instructions  
+├── report.md           ← Your progress report (update this)
+├── [project files...]  ← All project files (safe to modify)
+\`\`\`
 
 ## Current Phase: DESIGNING
 

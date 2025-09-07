@@ -1,22 +1,24 @@
 import { Schema } from 'effect'
 
 export const ToolName = Schema.Union(
-  Schema.Literal('Task'),
-  Schema.Literal('Bash'),
-  Schema.Literal('Glob'),
-  Schema.Literal('Grep'),
-  Schema.Literal('LS'),
-  Schema.Literal('ExitPlanMode'),
-  Schema.Literal('Read'),
-  Schema.Literal('Edit'),
-  Schema.Literal('MultiEdit'),
-  Schema.Literal('Write'),
-  Schema.Literal('NotebookEdit'),
-  Schema.Literal('WebFetch'),
-  Schema.Literal('TodoWrite'),
-  Schema.Literal('WebSearch'),
-  Schema.Literal('BashOutput'),
-  Schema.Literal('KillBash'),
+  Schema.Literal(
+    'Task',
+    'Bash',
+    'Glob',
+    'Grep',
+    'LS',
+    'ExitPlanMode',
+    'Read',
+    'Edit',
+    'MultiEdit',
+    'Write',
+    'NotebookEdit',
+    'WebFetch',
+    'TodoWrite',
+    'WebSearch',
+    'BashOutput',
+    'KillBash',
+  ),
   Schema.TemplateLiteral(Schema.Literal('mcp__playwright__'), Schema.String),
   Schema.TemplateLiteral(Schema.Literal('mcp__ide__'), Schema.String),
 )
@@ -29,7 +31,7 @@ export type SlashCommand = typeof SlashCommand.Type
 
 export const McpServer = Schema.Struct({
   name: Schema.String,
-  status: Schema.Union(Schema.Literal('connected'), Schema.Literal('disconnected'), Schema.Literal('error')),
+  status: Schema.Literal('connected', 'disconnected', 'error'),
 })
 
 export type McpServer = typeof McpServer.Type
@@ -48,7 +50,7 @@ export const Usage = Schema.Struct({
   cache_creation_input_tokens: Schema.optional(Schema.Number),
   cache_read_input_tokens: Schema.optional(Schema.Number),
   output_tokens: Schema.Number,
-  service_tier: Schema.optional(Schema.Union(Schema.Literal('standard'), Schema.Literal('premium'))),
+  service_tier: Schema.optional(Schema.Literal('standard', 'premium')),
   cache_creation: Schema.optional(CacheCreation),
   server_tool_use: Schema.optional(ServerToolUse),
 })
@@ -85,7 +87,7 @@ export const MessageContentBlock = Schema.Union(TextContent, ToolUseContent, Too
 export type MessageContentBlock = typeof MessageContentBlock.Type
 
 export const MessageContent = Schema.Struct({
-  role: Schema.Union(Schema.Literal('user'), Schema.Literal('assistant')),
+  role: Schema.Literal('user', 'assistant'),
   content: Schema.Array(MessageContentBlock),
 })
 
@@ -94,7 +96,7 @@ export type MessageContent = typeof MessageContent.Type
 export const ClaudeMessage = Schema.Struct({
   id: Schema.String,
   type: Schema.Literal('message'),
-  role: Schema.Union(Schema.Literal('user'), Schema.Literal('assistant')),
+  role: Schema.Literal('user', 'assistant'),
   model: Schema.optional(Schema.String),
   content: Schema.Array(MessageContentBlock),
   stop_reason: Schema.optional(Schema.NullOr(Schema.String)),
@@ -112,20 +114,9 @@ export const SystemInitMessage = Schema.Struct({
   tools: Schema.Array(ToolName),
   mcp_servers: Schema.Array(McpServer),
   model: Schema.String,
-  permissionMode: Schema.Union(
-    Schema.Literal('default'),
-    Schema.Literal('acceptEdits'),
-    Schema.Literal('bypassPermissions'),
-    Schema.Literal('plan'),
-  ),
+  permissionMode: Schema.Literal('default', 'acceptEdits', 'bypassPermissions', 'plan'),
   slash_commands: Schema.Array(SlashCommand),
-  apiKeySource: Schema.Union(
-    Schema.Literal('none'),
-    Schema.Literal('user'),
-    Schema.Literal('project'),
-    Schema.Literal('org'),
-    Schema.Literal('temporary'),
-  ),
+  apiKeySource: Schema.Literal('none', 'user', 'project', 'org', 'temporary'),
   output_style: Schema.String,
   uuid: Schema.String,
 })
@@ -162,12 +153,7 @@ export type PermissionDenial = typeof PermissionDenial.Type
 
 export const ResultMessage = Schema.Struct({
   type: Schema.Literal('result'),
-  subtype: Schema.Union(
-    Schema.Literal('success'),
-    Schema.Literal('error'),
-    Schema.Literal('error_max_turns'),
-    Schema.Literal('error_during_execution'),
-  ),
+  subtype: Schema.Literal('success', 'error', 'error_max_turns', 'error_during_execution'),
   is_error: Schema.Boolean,
   duration_ms: Schema.Number,
   duration_api_ms: Schema.Number,

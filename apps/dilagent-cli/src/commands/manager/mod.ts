@@ -4,6 +4,7 @@ import { generateHypothesesCommand } from './generate-hypotheses.ts'
 import { replCommand } from './repl.ts'
 import { reproCommand } from './repro.ts'
 import { runHypothesisWorkersCommand } from './run-hypotheses.ts'
+import { summaryCommand } from './summary.ts'
 
 export const managerCommand = Cli.Command.make('manager', {}).pipe(
   Cli.Command.withSubcommands([
@@ -11,6 +12,7 @@ export const managerCommand = Cli.Command.make('manager', {}).pipe(
     generateHypothesesCommand,
     runHypothesisWorkersCommand,
     allCommand,
+    summaryCommand,
     replCommand,
   ]),
   Cli.Command.withDescription('Manage debugging hypotheses'),

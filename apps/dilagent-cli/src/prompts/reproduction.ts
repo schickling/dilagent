@@ -72,7 +72,23 @@ Identify which type best describes your reproduction:
 - Replace external dependencies with mocks where possible
 - BUT: Keep the reproduction reliable above all else
 
-**4. Generate the Reproduction Script**
+**4. Working Directory Structure**
+You are working within a structured .dilagent workspace:
+
+\`\`\`
+.dilagent/
+├── artifacts/          ← Your reproduction outputs go here
+├── context-repo/       ← Git worktree with project files (READ-ONLY)
+├── logs/              ← Debug and process logs
+└── timeline.json      ← Automatic event tracking
+\`\`\`
+
+**Critical Directory Rules:**
+- **NEVER** modify files in context-repo/ - it's a git worktree for hypothesis testing
+- Save all reproduction artifacts to .dilagent/artifacts/
+- Your repro.ts output will be automatically saved to artifacts/repro.ts
+
+**5. Generate the Reproduction Script**
 Use the Write tool to create repro.ts with:
 
 \`\`\`typescript
@@ -80,8 +96,13 @@ Use the Write tool to create repro.ts with:
 /**
  * Reproduction Type: [immediate/delayed/environmental]
  * ${isFlaky ? 'Flaky: Yes - may require multiple runs' : 'Deterministic reproduction'}
- * Expected: [what should happen]
+ * Expected: [what should happen]  
  * Actual: [what does happen]
+ * 
+ * This reproduction feeds into the sophisticated hypothesis loop:
+ * - Successful reproduction → generates targeted hypotheses with experiment design
+ * - Failed reproduction → indicates environment/setup issues
+ * - Quality reproduction → enables effective counter-experiment design later
  */
 
 // For immediate bugs - include timing
@@ -104,11 +125,13 @@ console.log('Actual:', actualBehavior);
 ### Process Steps:
 
 **1. Explore and Understand**
-- List and read all files to understand the codebase structure
+- List and read all files in context-repo/ to understand the codebase structure
 - Identify entry points, test files, build scripts, configuration
 - Look for existing tests or examples that might be related to the problem
+- Remember: context-repo/ is READ-ONLY - observe but don't modify
 
 **2. Create and Minimize Reproduction**
+- Work in your current directory (not context-repo/)
 - Start with a working reproduction (even if not minimal)
 - Test that it reliably reproduces the issue
 - Remove unnecessary code while preserving the bug
@@ -119,6 +142,16 @@ console.log('Actual:', actualBehavior);
 - Include timing measurements for immediate bugs
 - Document setup requirements for environmental bugs
 - Add clear expected vs actual logging
+- Think about how this reproduction will inform hypothesis generation
+
+**4. Success Criteria for Hypothesis Loop**
+A good reproduction enables the sophisticated hypothesis testing loop by:
+- **Clear bug demonstration**: Unambiguous evidence of the issue
+- **Minimal, isolated test case**: Easy to build experiments upon
+- **Measurable behavior**: Timing/performance data for comparison
+- **Environmental context**: Dependencies documented for consistent testing
+- **Counter-experiment foundation**: Clear baseline that counter-experiments can test against
+- **Reproducible results**: Consistent behavior that hypotheses can reliably test
 
 ### What to Include in Response
 

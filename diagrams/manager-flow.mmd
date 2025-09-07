@@ -29,8 +29,7 @@ flowchart TD
             direction TB
             H001Proven[✅ Proven<br/>Root cause found]
             H001Disproven[❌ Disproven<br/>Not the issue]
-            H001Diagnosed[🎯 Diagnosed<br/>Issue understood]
-            H001Inconclusive[❓ Inconclusive<br/>Need more data]
+            H001Inconclusive[❓ Inconclusive<br/>Very rare, last resort]
         end
         
         subgraph H002Container ["H002"]
@@ -48,7 +47,6 @@ flowchart TD
         Results[📊 Results Summary]
         H001Proven --> Results
         H001Disproven --> Results
-        H001Diagnosed --> Results
         H001Inconclusive --> Results
         H002 --> Results
         H003 --> Results

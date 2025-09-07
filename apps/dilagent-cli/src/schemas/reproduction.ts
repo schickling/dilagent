@@ -36,11 +36,7 @@ export const ReproductionResult = Schema.Union(
     executionTimeMs: Schema.optional(Schema.Number).annotations({
       description: 'Time to execute reproduction locally (when measurable)',
     }),
-    reproductionType: Schema.Union(
-      Schema.Literal('immediate'),
-      Schema.Literal('delayed'),
-      Schema.Literal('environmental'),
-    ).annotations({
+    reproductionType: Schema.Literal('immediate', 'delayed', 'environmental').annotations({
       description: 'Basic characteristic of how the bug manifests',
     }),
     minimizationNotes: Schema.optional(Schema.String).annotations({
