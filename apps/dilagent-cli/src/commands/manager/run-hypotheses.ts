@@ -35,11 +35,11 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
       return yield* Effect.gen(function* () {
         const cwd = Option.getOrElse(cwdOption, () => process.cwd())
         const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
-        const deebugDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
-        const resolvedContextDirectory = path.join(deebugDir, CONTEXT_DIR)
+        const dilagentDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
+        const resolvedContextDirectory = path.join(dilagentDir, CONTEXT_DIR)
 
         yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
-        yield* Effect.log(`Deebug directory: ${deebugDir}`)
+        yield* Effect.log(`Dilagent directory: ${dilagentDir}`)
         yield* Effect.log(`Context directory: ${resolvedContextDirectory}`)
 
         // Load hypotheses from canonical location

@@ -18,7 +18,7 @@ import {
   type HypothesisInput,
   HypothesisInput as HypothesisInputSchema,
 } from '../../schemas/hypothesis.ts'
-import { ReproductionResult } from '../../schemas/reproduction.ts'
+import { ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
 import { LLMService } from '../../services/llm.ts'
 import { hypothesisCommand } from '../hypothesis.ts'
 
@@ -104,7 +104,7 @@ export const generateHypotheses = ({
     // Check for existing reproduction results
     const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
     const reproduction = yield* fs.readFileString(reproductionFile).pipe(
-      Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult))),
+      Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult, { space: 2 }))),
       Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
     )
 
@@ -139,7 +139,7 @@ export const generateHypotheses = ({
       yield* Effect.log(
         `No reproduction found - generating hypotheses with traditional exploration and reproduction approach`,
       )
-      yield* Effect.log(`💡 Hint: Run 'deebug manager repro' first for more focused hypothesis generation`)
+      yield* Effect.log(`💡 Hint: Run 'dilagent manager repro' first for more focused hypothesis generation`)
     }
 
     const HypothesisInputResult = yield* llm
@@ -282,7 +282,7 @@ export const reproduceIssue = ({
     // Check if this is a retry attempt
     const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
     const previousAttempt = yield* fs.readFileString(reproductionFile).pipe(
-      Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult))),
+      Effect.andThen(Schema.decode(ReproductionResultFile)),
       Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
     )
 
@@ -314,12 +314,12 @@ export const reproduceIssue = ({
       })
       .pipe(
         Effect.timeout('20 minutes'),
-        Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult))),
+        Effect.andThen(Schema.decode(ReproductionResultFile)),
         Effect.withSpan('reproduceIssue'),
       )
 
     // Save reproduction result
-    const reproductionJson = yield* Schema.encode(Schema.parseJson(ReproductionResult))(reproductionResult)
+    const reproductionJson = yield* Schema.encode(ReproductionResultFile)(reproductionResult)
     yield* fs.writeFileString(reproductionFile, reproductionJson)
 
     // If successful, also save the repro.ts script
@@ -360,7 +360,7 @@ export const loadReproduction = (resolvedWorkingDirectory: string) =>
     const reproductionFile = path.join(dilagentDir, REPRODUCTION_FILE)
 
     const reproductionJson = yield* fs.readFileString(reproductionFile)
-    const reproduction = yield* Schema.decode(Schema.parseJson(ReproductionResult))(reproductionJson)
+    const reproduction = yield* Schema.decode(ReproductionResultFile)(reproductionJson)
 
     yield* Effect.log(`Loaded reproduction result from ${reproductionFile}`)
 

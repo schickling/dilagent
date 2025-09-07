@@ -1,11 +1,10 @@
-import { Command, FileSystem } from '@effect/platform'
+import { Command, type FileSystem } from '@effect/platform'
 import type * as CommandExecutor from '@effect/platform/CommandExecutor'
 import type { PlatformError } from '@effect/platform/Error'
-import { NodeFileSystem } from '@effect/platform-node'
 import { Effect, Layer, Schema, Stream } from 'effect'
 import { ClaudeCodeMessage, ResultMessage } from '../schemas/claude-code-protocol.ts'
 import { logDuration } from '../utils/Effect.ts'
-import { LLMError, type LLMOptions, LLMService, type MCPConfig } from './llm.ts'
+import { getWriteToLogFile, LLMError, type LLMOptions, LLMService, type MCPConfig } from './llm.ts'
 
 export const ClaudeModel = Schema.Literal('Opus', 'Sonnet')
 export type ClaudeModel = typeof ClaudeModel.Type
@@ -66,41 +65,38 @@ const buildCommand = (
 const prompt = (
   input: string,
   options: LLMOptions = {},
-): Effect.Effect<string, LLMError | PlatformError, CommandExecutor.CommandExecutor> =>
+): Effect.Effect<string, LLMError | PlatformError, CommandExecutor.CommandExecutor | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     // Map LLM options to Claude-specific options
     const model: ClaudeModel = options.useBestModel ? 'Opus' : 'Sonnet'
 
     if (options.debugLogPath !== undefined) {
-      return yield* Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
-        const logFile = yield* fs.open(options.debugLogPath!, { flag: 'a' })
-        const encoder = new TextEncoder()
+      const writeToLogFile = yield* getWriteToLogFile(options)
 
-        const last = yield* promptStream(input, options).pipe(
-          Stream.tap((_) => logFile.write(encoder.encode(`${_}\n`))),
-          Stream.mapEffect(Schema.decode(Schema.parseJson(ClaudeCodeMessage))),
-          Stream.mapError(
-            (cause) =>
-              new LLMError({
-                cause,
-                prompt: input,
-                note: 'Failed to parse Claude CLI JSON response',
-              }),
-          ),
-          Stream.runLast,
-        )
+      const last = yield* promptStream(input, options).pipe(
+        // TODO map to better log output
+        Stream.tap((_) => writeToLogFile(_)),
+        Stream.mapEffect(Schema.decode(Schema.parseJson(ClaudeCodeMessage))),
+        Stream.mapError(
+          (cause) =>
+            new LLMError({
+              cause,
+              prompt: input,
+              note: 'Failed to parse Claude CLI JSON response',
+            }),
+        ),
+        Stream.runLast,
+      )
 
-        if (last._tag !== 'Some' || last.value.type !== 'result') {
-          return yield* new LLMError({
-            cause: new Error('Claude returned an unexpected response format'),
-            prompt: input,
-            note: `Claude returned an unexpected response format: ${last._tag}`,
-          })
-        }
+      if (last._tag !== 'Some' || last.value.type !== 'result') {
+        return yield* new LLMError({
+          cause: new Error('Claude returned an unexpected response format'),
+          prompt: input,
+          note: `Claude returned an unexpected response format: ${last._tag}`,
+        })
+      }
 
-        return yield* getJsonResult({ response: last.value, input, output: last.value.result })
-      }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
+      return yield* getJsonResult({ response: last.value, input, output: last.value.result })
     }
 
     const command = buildCommand(input, {
@@ -135,7 +131,7 @@ const prompt = (
     )
 
     return yield* getJsonResult({ response: validatedResponse, input, output })
-  }).pipe(Effect.withSpan('claude.prompt'), logDuration('claude.prompt'))
+  }).pipe(Effect.withSpan('claude.prompt'), logDuration('claude.prompt'), Effect.scoped)
 
 /**
  * Send a prompt to Claude and stream the response line by line

@@ -1,124 +1,127 @@
 import { AiTool, AiToolkit, McpServer } from '@effect/ai'
 import { Effect, Layer, Schema } from 'effect'
-import { HypothesisResult, HypothesisStatusUpdate } from '../schemas/hypothesis.ts'
+import { HypothesisPhase, HypothesisResult, HypothesisStatusUpdate } from '../schemas/hypothesis.ts'
 import { StateStore } from './state-store.js'
 
-const GetTool = AiTool.make('dilagent_state_get', {
-  description: 'Get a value from the state store by key',
-  parameters: {
-    key: Schema.String.annotations({
-      description: 'The key to retrieve',
-    }),
-  },
-  success: Schema.Union(HypothesisResult, HypothesisStatusUpdate, Schema.Undefined),
-})
-
-const SetTool = AiTool.make('dilagent_state_set', {
+const UpdateStatusTool = AiTool.make('dilagent_hypothesis_update_status', {
   description: `\
-Set a key-value pair in the state store. The value must be a tagged union.
+Update the current status of your hypothesis testing progress. Use this throughout the hypothesis loop to report progress.
 
-IMPORTANT: If this tool fails due to schema validation, carefully read the error and retry with the correct tagged union format above.`,
+Call this when:
+- Starting a new phase (DESIGNING, TESTING, DIAGNOSING, COUNTER_TESTING)
+- Making progress within a phase
+- Collecting evidence or completing experiments`,
   parameters: {
-    key: Schema.String.annotations({
-      description: 'The key to set',
+    hypothesisId: Schema.String.annotations({
+      description: 'The hypothesis ID you are working on',
     }),
-    value: Schema.Union(HypothesisResult, HypothesisStatusUpdate),
+    phase: HypothesisPhase,
+    experimentId: Schema.optional(
+      Schema.String.annotations({
+        description: 'Current experiment being worked on (e.g., E01, E02)',
+      }),
+    ),
+    status: Schema.String.annotations({
+      description: 'Detailed status message about current progress',
+    }),
+    evidence: Schema.optional(
+      Schema.String.annotations({
+        description: 'Any evidence collected so far during this phase',
+      }),
+    ),
   },
   success: Schema.String,
 })
 
-const DeleteTool = AiTool.make('dilagent_state_delete', {
-  description: 'Delete a key from the state store',
+const SetResultTool = AiTool.make('dilagent_hypothesis_set_result', {
+  description: `\
+Set the final result of your hypothesis testing. Only use this when you have reached a definitive conclusion.
+
+Call this only at terminal states:
+- Root cause found and confirmed (Proven)
+- Hypothesis definitively ruled out (Disproven) 
+- Truly intractable situation (Inconclusive - use as absolutely last resort)`,
   parameters: {
-    key: Schema.String.annotations({
-      description: 'The key to delete',
+    hypothesisId: Schema.String.annotations({
+      description: 'The hypothesis ID you completed testing',
     }),
+    result: HypothesisResult,
   },
-  success: Schema.Boolean,
+  success: Schema.String,
 })
 
-const ListTool = AiTool.make('dilagent_state_list', {
-  description: 'List all key-value pairs in the state store',
+const GetStatusAllTool = AiTool.make('dilagent_hypothesis_get_status_all', {
+  description: `\
+Query the status of all hypotheses being worked on. 
+
+IMPORTANT: Only use this during the DESIGNING phase to:
+- Avoid duplicate experiments
+- Learn from other workers' findings
+- Coordinate testing approaches
+
+Do NOT call this during other phases.`,
+  parameters: {},
   success: Schema.Struct({
-    entries: Schema.Array(
+    hypotheses: Schema.Array(
       Schema.Struct({
-        key: Schema.String,
-        value: Schema.Union(HypothesisResult, HypothesisStatusUpdate),
+        hypothesisId: Schema.String,
+        currentStatus: Schema.Union(HypothesisStatusUpdate, HypothesisResult),
       }),
     ),
   }),
 })
 
-const KeysTool = AiTool.make('dilagent_state_keys', {
-  description: 'List all keys in the state store',
-  success: Schema.Struct({
-    keys: Schema.Array(Schema.String),
-  }),
-})
-
-const ClearTool = AiTool.make('dilagent_state_clear', {
-  description: 'Clear all entries from the state store',
-  success: Schema.String,
-})
-
-export const toolkit = AiToolkit.make(GetTool, SetTool, DeleteTool, ListTool, KeysTool, ClearTool)
+export const toolkit = AiToolkit.make(UpdateStatusTool, SetResultTool, GetStatusAllTool)
 
 const makeHandlers = Effect.gen(function* () {
   const store = yield* StateStore
 
   return toolkit.of({
-    dilagent_state_get: ({ key }) =>
+    dilagent_hypothesis_update_status: ({ hypothesisId, phase, experimentId, status, evidence }) =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] dilagent_state_get called with key: "${key}"`)
-        const value = yield* store.get(key)
-        yield* Effect.logDebug(`[MCP] dilagent_state_get returning: ${value ?? 'undefined'}`)
-        return value ?? undefined
-      }),
+        yield* Effect.logDebug(`[MCP] dilagent_hypothesis_update_status called for ${hypothesisId} in ${phase} phase`)
 
-    dilagent_state_set: ({ key, value }) =>
-      Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] dilagent_state_set called with key: "${key}", value: "${JSON.stringify(value)}"`)
+        const statusUpdate: HypothesisStatusUpdate = {
+          _tag: 'HypothesisStatusUpdate',
+          hypothesisId,
+          phase,
+          experimentId,
+          status,
+          evidence,
+        }
 
-        yield* store.set(key, value)
+        const key = `${hypothesisId}:status`
+        yield* store.set(key, statusUpdate)
 
-        const message = `Set ${key} successfully`
-        yield* Effect.logDebug(`[MCP] dilagent_state_set returning: ${message}`)
+        const message = `Updated status for ${hypothesisId}: ${phase} - ${status}`
+        yield* Effect.logDebug(`[MCP] dilagent_hypothesis_update_status: ${message}`)
         return message
       }),
 
-    dilagent_state_delete: ({ key }) =>
+    dilagent_hypothesis_set_result: ({ hypothesisId, result }) =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] dilagent_state_delete called with key: "${key}"`)
-        const result = yield* store.delete(key)
-        yield* Effect.logDebug(`[MCP] dilagent_state_delete returning: ${result}`)
-        return result
+        yield* Effect.logDebug(`[MCP] dilagent_hypothesis_set_result called for ${hypothesisId}: ${result._tag}`)
+
+        const key = `${hypothesisId}:result`
+        yield* store.set(key, result)
+
+        const message = `Set final result for ${hypothesisId}: ${result._tag}`
+        yield* Effect.logDebug(`[MCP] dilagent_hypothesis_set_result: ${message}`)
+        return message
       }),
 
-    dilagent_state_list: () =>
+    dilagent_hypothesis_get_status_all: () =>
       Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] dilagent_state_list called`)
+        yield* Effect.logDebug(`[MCP] dilagent_hypothesis_get_status_all called`)
+
         const entries = yield* store.list()
-        yield* Effect.logDebug(`[MCP] dilagent_state_list found ${entries.length} entries:`)
-        for (const entry of entries) {
-          yield* Effect.logDebug(`[MCP]   - ${entry.key} = ${entry.value}`)
-        }
-        return { entries }
-      }),
+        const hypotheses = entries.map((entry) => ({
+          hypothesisId: entry.key.split(':')[0] ?? 'unknown',
+          currentStatus: entry.value,
+        }))
 
-    dilagent_state_keys: () =>
-      Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] dilagent_state_keys called`)
-        const keys = yield* store.keys()
-        yield* Effect.logDebug(`[MCP] dilagent_state_keys returning ${keys.length} keys: ${keys.join(', ')}`)
-        return { keys }
-      }),
-
-    dilagent_state_clear: () =>
-      Effect.gen(function* () {
-        yield* Effect.logDebug(`[MCP] dilagent_state_clear called`)
-        yield* store.clear()
-        yield* Effect.logDebug(`[MCP] dilagent_state_clear completed`)
-        return 'State store cleared'
+        yield* Effect.logDebug(`[MCP] dilagent_hypothesis_get_status_all returning ${hypotheses.length} hypotheses`)
+        return { hypotheses }
       }),
   })
 })

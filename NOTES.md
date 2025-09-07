@@ -55,6 +55,7 @@ Principled, structured debugging and root cause analysis
   - use `git worktree` instead of copying the context directory if its a git repo
   - naming pattern for worktree branches: `diligent/
 - [ ] Refine files/folder structure
+  -  centralize logs in working directory (also facilitates showing the logs in the repl/UI)
 - [ ] Run TS in experiment test loop
 - [ ] Get rid of Inconclusive / disproven hypo results
 - [ ] Improve claude debug logfile output (currently JSONL)

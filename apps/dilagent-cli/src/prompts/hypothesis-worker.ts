@@ -111,14 +111,27 @@ Update \`report.md\` progressively following this structure:
 - Next steps: [If applicable]
 \`\`\`
 
-## MCP Server Integration
+## MCP Tools Integration
 
-// TODO: Update MCP state at each phase transition
-// TODO: Report intermediate findings to manager
-// TODO: Query other experiments for related findings
+**Use these MCP tools to coordinate and report progress:**
 
-- Use the MCP server \`stateStore\` to update your progress
-- If tool calls fail, read the error and retry with correct format
+### dilagent_hypothesis_update_status
+Update your progress throughout the hypothesis loop:
+- **When**: At each phase transition and key progress points
+- **Phase values**: DESIGNING, TESTING, DIAGNOSING, COUNTER_TESTING
+- **Include**: experiment ID (E01, E02, etc.), status message, evidence collected
+
+### dilagent_hypothesis_set_result
+Set final result only at terminal states:
+- **Proven**: Root cause found and confirmed via counter-experiments
+- **Disproven**: Hypothesis definitively ruled out
+- **Inconclusive**: Use sparingly - only when truly intractable
+
+### dilagent_hypothesis_get_status_all
+Check all hypotheses status **ONLY during DESIGNING phase**:
+- Avoid duplicate experiments
+- Learn from other workers' findings
+- Coordinate testing approaches
 
 ## Acceptance Criteria
 
@@ -126,7 +139,8 @@ Update \`report.md\` progressively following this structure:
 - **Evidence-Based**: All findings documented with concrete, reproducible evidence
 - **Counter-Tested**: Positive findings validated with counter-experiments
 - **Progressive Reporting**: Report updated incrementally throughout investigation
-- **Phase Tracking**: Current phase clearly indicated in reports and state
+- **MCP Coordination**: Status updates sent at each phase, others checked only in DESIGNING
+- **Terminal States**: Final result set only at "Root cause found" or "Root cause not found"
 
 `
 
@@ -142,7 +156,9 @@ Follow the instructions provided in the \`instructions.md\` file.
 
 ## Current Phase: DESIGNING
 
-Start in the DESIGNING phase and follow the hypothesis testing loop.
+Start in the DESIGNING phase and follow the hypothesis testing loop exactly as shown in the diagram.
+
+**Important**: Call dilagent_hypothesis_update_status when entering each new phase to keep the manager informed of your progress.
 
 ## Problem Statement
 
@@ -179,7 +195,9 @@ To prove this hypothesis:
 3. **Evidence**: Each test should produce concrete, measurable evidence
 4. **Speed**: Prefer fast tests for rapid iteration
 
-// TODO: Add MCP state tracking for phase transitions
-// TODO: Query manager for related experiment findings
+**MCP Integration:**
+- Call dilagent_hypothesis_get_status_all to check what all hypotheses are working on
+- Use dilagent_hypothesis_update_status when entering DESIGNING phase
+- Include evidence from coordination in your experiment design
 
 `

@@ -35,30 +35,15 @@ export const GenerateHypothesesInputResult = Schema.Union(
   }),
 ).annotations({ title: 'GenerateHypothesesInputResult' })
 
+export const HypothesisPhase = Schema.Literal('DESIGNING', 'TESTING', 'DIAGNOSING', 'COUNTER_TESTING').annotations({
+  title: 'HypothesisPhase',
+  description: 'Current phase in the hypothesis testing loop',
+})
+
+export type HypothesisPhase = typeof HypothesisPhase.Type
+
 export const HypothesisResult = Schema.Union(
   Schema.TaggedStruct('Proven', {
-    hypothesisId,
-    nextSteps: Schema.Array(Schema.String).annotations({
-      description: 'A detailed description of the next steps to test the hypothesis.',
-    }),
-  }).annotations({ title: 'Proven' }),
-  Schema.TaggedStruct('Disproven', {
-    hypothesisId,
-    reason: Schema.String.annotations({
-      description: 'A detailed description of the reason the experiment was disproven',
-    }),
-    evidence: Schema.String.annotations({
-      description: 'Clear evidence backing up why the experiment has disproven the root cause hypothesis',
-    }),
-    newhypothesisIdeas: Schema.Array(HypothesisInput.omit('hypothesisId')).annotations({
-      description: 'Based on learnings from the current experiment, a list of new experiment ideas to try.',
-    }),
-  }).annotations({ title: 'Disproven' }),
-  Schema.TaggedStruct('Inconclusive', {
-    hypothesisId,
-    currentStatus: Schema.String,
-  }).annotations({ title: 'Inconclusive' }),
-  Schema.TaggedStruct('Diagnosed', {
     hypothesisId,
     findings: Schema.String.annotations({
       description: 'Summary of root causes and findings from the diagnosis',
@@ -84,13 +69,49 @@ export const HypothesisResult = Schema.Union(
         testResults: Schema.optional(Schema.String),
       }),
     ),
-  }).annotations({ title: 'Diagnosed' }),
+  }).annotations({ title: 'Proven' }),
+  Schema.TaggedStruct('Disproven', {
+    hypothesisId,
+    reason: Schema.String.annotations({
+      description: 'A detailed description of the reason the experiment was disproven',
+    }),
+    evidence: Schema.String.annotations({
+      description: 'Clear evidence backing up why the experiment has disproven the root cause hypothesis',
+    }),
+    newhypothesisIdeas: Schema.Array(HypothesisInput.omit('hypothesisId')).annotations({
+      description: 'Based on learnings from the current experiment, a list of new experiment ideas to try.',
+    }),
+  }).annotations({ title: 'Disproven' }),
+  Schema.TaggedStruct('Inconclusive', {
+    hypothesisId,
+    attemptedExperiments: Schema.Array(Schema.String).annotations({
+      description: 'List of experiments that were attempted',
+    }),
+    intractableReason: Schema.String.annotations({
+      description: 'Explanation of why this hypothesis cannot be definitively proven or disproven',
+    }),
+  }).annotations({ title: 'Inconclusive' }),
 ).annotations({
   title: 'HypothesisResult',
-  description: 'The final result of an experiment',
+  description: 'The final result of a hypothesis (use Inconclusive sparingly as last resort)',
 })
 
 export const HypothesisStatusUpdate = Schema.TaggedStruct('HypothesisStatusUpdate', {
   hypothesisId,
-  status: HypothesisResult,
+  phase: HypothesisPhase,
+  experimentId: Schema.optional(
+    Schema.String.annotations({
+      description: 'Current experiment being worked on (e.g., E01, E02)',
+    }),
+  ),
+  status: Schema.String.annotations({
+    description: 'Detailed status message about current progress',
+  }),
+  evidence: Schema.optional(
+    Schema.String.annotations({
+      description: 'Any evidence collected so far during this phase',
+    }),
+  ),
 }).annotations({ title: 'HypothesisStatusUpdate' })
+
+export type HypothesisStatusUpdate = typeof HypothesisStatusUpdate.Type

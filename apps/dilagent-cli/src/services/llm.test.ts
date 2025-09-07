@@ -5,6 +5,8 @@
  * All tests in this file should pass for every LLM provider (Claude, Codex, etc.)
  * to ensure compatibility across different LLM backends.
  */
+
+import type { FileSystem } from '@effect/platform'
 import type { CommandExecutor } from '@effect/platform/CommandExecutor'
 import type { PlatformError } from '@effect/platform/Error'
 import { NodeContext } from '@effect/platform-node'
@@ -22,7 +24,10 @@ const providerLayers = [
 ]
 
 describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer }) => {
-  let runtime: ManagedRuntime.ManagedRuntime<LLMService | CommandExecutor | StateStore, LLMError | PlatformError>
+  let runtime: ManagedRuntime.ManagedRuntime<
+    LLMService | CommandExecutor | StateStore | FileSystem.FileSystem,
+    LLMError | PlatformError
+  >
 
   beforeAll(async () => {
     // Create runtime with LLM provider, MCP server, and StateStore
@@ -279,8 +284,13 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Clear and populate store with multiple test entries
           yield* store.clear()
-          const testData1 = { _tag: 'Proven' as const, hypothesisId: 'H003', nextSteps: [] }
-          const testData2 = { _tag: 'Inconclusive' as const, hypothesisId: 'H004', currentStatus: 'In progress' }
+          const testData1 = { _tag: 'Proven' as const, hypothesisId: 'H003', findings: 'Root cause found' }
+          const testData2 = {
+            _tag: 'Inconclusive' as const,
+            hypothesisId: 'H004',
+            attemptedExperiments: ['E01'],
+            intractableReason: 'Cannot reproduce issue',
+          }
 
           yield* store.set('key1', testData1)
           yield* store.set('key2', testData2)
@@ -309,7 +319,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Pre-populate store with test data
-          const testData = { _tag: 'Proven' as const, hypothesisId: 'H005', nextSteps: [] }
+          const testData = { _tag: 'Proven' as const, hypothesisId: 'H005', findings: 'Root cause identified' }
           yield* store.set('temp-key', testData)
 
           // Verify data is there initially
@@ -344,8 +354,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Clear and populate store with multiple keys
           yield* store.clear()
-          const testData1 = { _tag: 'Proven' as const, hypothesisId: 'H006', nextSteps: [] }
-          const testData2 = { _tag: 'Proven' as const, hypothesisId: 'H007', nextSteps: [] }
+          const testData1 = { _tag: 'Proven' as const, hypothesisId: 'H006', findings: 'Root cause found' }
+          const testData2 = { _tag: 'Proven' as const, hypothesisId: 'H007', findings: 'Another root cause' }
 
           yield* store.set('alpha-key', testData1)
           yield* store.set('beta-key', testData2)

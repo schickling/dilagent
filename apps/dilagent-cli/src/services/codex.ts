@@ -1,9 +1,9 @@
-import { Command, type CommandExecutor } from '@effect/platform'
+import { Command, type CommandExecutor, type FileSystem } from '@effect/platform'
 import type { PlatformError } from '@effect/platform/Error'
 import { Effect, Layer, Record, Schema, Stream } from 'effect'
 import { logDuration } from '../utils/Effect.ts'
 import { toTomlString } from '../utils/toml.ts'
-import { LLMError, type LLMOptions, LLMService, type MCPConfig } from './llm.ts'
+import { getWriteToLogFile, LLMError, type LLMOptions, LLMService, type MCPConfig } from './llm.ts'
 
 export const CodexModel = Schema.Literal('gpt-5', 'gpt-5-high', 'gpt-5-medium', 'gpt-5-low')
 export type CodexModel = typeof CodexModel.Type
@@ -107,11 +107,13 @@ const buildCommand = (
 const prompt = (
   input: string,
   options: LLMOptions = {},
-): Effect.Effect<string, LLMError | PlatformError, CommandExecutor.CommandExecutor> =>
+): Effect.Effect<string, LLMError | PlatformError, CommandExecutor.CommandExecutor | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     // Map LLM options to Codex-specific options
     // Use default model (gpt-5) for both cases since other variants are not supported
     const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
+
+    const writeToLogFile = yield* getWriteToLogFile(options)
 
     const command = yield* buildCommand(input, {
       ...options,
@@ -153,6 +155,8 @@ const prompt = (
     let finalResult = ''
     for (const line of lines) {
       try {
+        writeToLogFile(line)
+
         const event = JSON.parse(line)
         // console.log('codex event', event)
 
@@ -176,7 +180,7 @@ const prompt = (
     }
 
     return finalResult
-  }).pipe(Effect.withSpan('codex.execute'), logDuration('codex.execute'))
+  }).pipe(Effect.withSpan('codex.execute'), logDuration('codex.execute'), Effect.scoped)
 
 /**
  * Send a prompt to Codex and stream the response
