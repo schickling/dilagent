@@ -9,6 +9,9 @@ import { managerCommand } from './commands/manager/mod.ts'
 import { utilsCommand } from './commands/utils/mod.ts'
 import { StateStore } from './services/state-store.ts'
 
+// Needed for Codex to find the CLI in the MCP proxy
+process.env.DEEBUG_CLI_PATH = process.env.DEEBUG_CLI_PATH ?? process.argv[1]!
+
 const mainCommand = Cli.Command.make('deebug', {}).pipe(
   Cli.Command.withSubcommands([hypothesisCommand, managerCommand, utilsCommand]),
 )

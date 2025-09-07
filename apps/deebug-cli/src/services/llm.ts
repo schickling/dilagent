@@ -46,6 +46,8 @@ export interface LLMOptions {
   skipPermissions?: boolean
   /** MCP configuration */
   mcpConfig?: MCPConfig
+  /** Path to debug log file */
+  debugLogPath?: string
 }
 
 /**

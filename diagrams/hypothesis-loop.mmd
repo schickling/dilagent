@@ -1,0 +1,200 @@
+%%{init: {"flowchart": {"htmlLabels": true}, "theme": "base"}}%%
+flowchart TD
+    %% Title
+    Title[<b>Hypothesis Loop</b><br/>Example - H001: HLC/LWW Bug Causing Replica Inconsistency]
+    
+    %% Main Hypothesis Container
+    subgraph HypothesisLoop [" "]
+        %% Main Flow
+        Start([Start])
+        DesignExp[Design Experiments]
+        
+        %% Main Decision Points
+        HasExpDecision{{Switch: Experiments Available?}}
+        RootCauseNotFound[Root cause not found]
+        RunExperiments[Run Experiments]
+        
+        %% Experiments Container
+        subgraph ExperimentsContainer ["🔬 Experiments"]
+            %% E03: Active Experiment
+            subgraph E03 [E03: Experiment Loop]
+                direction TB
+                DesignTest[Design Test]
+                RunTest[Run Test] 
+                CollectEvidence[Collect Evidence & Diagnose]
+                
+                %% Experiment Decision Logic
+                ExpDecision{{Switch: Test Result?}}
+                
+                %% Counter-experiments Coordination
+                DesignCounterExperiments[Design Counter-experiments]
+                RunCounterExperiments[Run Counter-experiments]
+                
+                %% Counter-experiments Container
+                subgraph CounterExpsContainer ["⚖️ Counter-Experiments"]
+                    subgraph E03C01 [E03:C01: Counter-experiment]
+                        DesignCounterTest[Design Counter-test]
+                        RunTestCounter[Run Test]
+                        CollectEvidenceCounter[Collect Evidence & Diagnose]
+                        CEDecision{{Switch: Counter Result?}}
+                    end
+                    
+                end
+            end
+        end
+        
+        %% Status and Reporting System
+        UpdateStatus[Update Status]
+        ReportMd[report.md]
+        RootCauseFound[Root cause found]
+        ManagerMCP[Manager<br/>MCP Server]
+    end
+    
+    %% Context Information Panel
+    subgraph ContextPanel ["📋 Context"]
+        direction TB
+        
+        %% Current Status Indicators
+        CurrentExpLabel[current experiment]
+        CurrentCounterExpLabel[current counter-experiment]
+        
+        %% Files Section
+        subgraph FilesPanel [Files]
+            direction TB
+            ContextFiles["/context<br/>/context.md<br/>/instructions.md"]
+            ProjectFiles["/project<br/>/reports<br/>/project-files..."]
+            ExperimentFiles["/experiments<br/>/E01<br/>/tests<br/>/project-files..."]
+        end
+        
+        %% Experiment Tree Section  
+        subgraph ExperimentTree ["🧪 Experiment Status Tree"]
+            direction TB
+            
+            subgraph E01Tree ["❌ E01: Failed"]
+                E01C01Status["❌ E01:C01: Failed"]
+                E01C02Status["❌ E01:C02: Failed"]
+                E01C01Status --> E01C02Status
+            end
+            
+            subgraph E02Tree ["❌ E02: Failed"]
+                E02C01Status["❌ E02:C01: Failed"]
+                E02C02Status["❌ E02:C02: Failed"]
+                E02C01Status --> E02C02Status
+            end
+            
+            subgraph E03Tree ["🟢 E03: Active"]
+                E03C01Status["🟡 E03:C01: Running"]
+                E03C02Status["⏸️ E03:C02: Queued"]
+                E03C01Status --> E03C02Status
+            end
+            
+            subgraph E04Tree ["⏸️ E04: Queued"]
+                E04C01Status["⚪ E04:C01: Not Started"]
+                E04C02Status["⚪ E04:C02: Not Started"]
+                E04C01Status --> E04C02Status
+            end
+            
+            %% Experiment Chain
+            E01Tree --> E02Tree
+            E02Tree --> E03Tree  
+            E03Tree --> E04Tree
+        end
+    end
+    
+    %% === FLOW CONNECTIONS ===
+    
+    %% Main Flow
+    Title --> Start
+    Start --> DesignExp
+    DesignExp -.->|"update"| UpdateStatus
+    DesignExp --> HasExpDecision
+    
+    %% Experiment Decision Branches
+    HasExpDecision -->|"there are experiments"| RunExperiments
+    HasExpDecision -->|"no more experiments"| RootCauseNotFound
+    
+    %% Run Experiments Flow
+    RunExperiments -.->|"update"| UpdateStatus
+    RunExperiments --> DesignTest
+    DesignTest -.->|"update"| UpdateStatus
+    DesignTest --> RunTest
+    RunTest --> CollectEvidence
+    CollectEvidence -.->|"update"| UpdateStatus
+    CollectEvidence --> ExpDecision
+    
+    %% Experiment Decision Branches (Switch)
+    ExpDecision -->|"inconclusive - refine test"| DesignTest
+    ExpDecision -->|"experiment failed - refine experiments"| DesignExp
+    ExpDecision -->|"confirms hypothesis - run CEs"| DesignCounterExperiments
+    ExpDecision -->|"confirms hypothesis - no more CEs"| RootCauseFound
+    
+    %% Design Counter-experiments Flow
+    DesignCounterExperiments -.->|"update"| UpdateStatus
+    DesignCounterExperiments --> RunCounterExperiments
+    RunCounterExperiments -.->|"update"| UpdateStatus
+    RunCounterExperiments --> DesignCounterTest
+    DesignCounterTest -.->|"update"| UpdateStatus
+    DesignCounterTest --> RunTestCounter
+    RunTestCounter --> CollectEvidenceCounter
+    CollectEvidenceCounter -.->|"update"| UpdateStatus
+    CollectEvidenceCounter --> CEDecision
+    
+    %% Counter-Experiment Decision Branches (Switch)
+    CEDecision -->|"CE passed - hypothesis confirmed"| RootCauseFound
+    CEDecision -->|"inconclusive - refine"| DesignCounterTest
+    CEDecision -->|"no more counter-experiments"| RootCauseFound
+    
+    %% Status and Reporting Flow
+    UpdateStatus -.->|"writes to"| ReportMd
+    UpdateStatus -->|"sends HypothesisStatusUpdate"| ManagerMCP
+    
+    %% Final Result Flows
+    RootCauseFound -->|"sends HypothesisResult (success)"| ManagerMCP
+    RootCauseNotFound -->|"sends HypothesisResult (failure)"| ManagerMCP
+    
+    %% Current Status Visual Indicators (within Context container)
+    CurrentExpLabel -.-> E03Tree
+    CurrentCounterExpLabel -.-> E03C01Status
+    
+    %% === STYLING ===
+    
+    %% Decision Node Styling (Switch statements)
+    classDef decisionNode fill:#4a5568,stroke:#2d3748,stroke-width:2px,color:#fff,font-weight:bold
+    
+    %% Process Node Styling
+    classDef processNode fill:#2b6cb0,stroke:#2c5282,stroke-width:2px,color:#fff
+    
+    %% Status/External Node Styling
+    classDef statusNode fill:#7c2d12,stroke:#92400e,stroke-width:2px,color:#fff
+    
+    %% Experiment Container Styling
+    classDef experimentNode fill:#065f46,stroke:#047857,stroke-width:2px,color:#fff
+    
+    %% Files/Context Styling
+    classDef contextNode fill:#374151,stroke:#4b5563,stroke-width:1px,color:#fff
+    
+    %% Current Status Indicator Styling
+    classDef indicatorNode fill:#fbbf24,stroke:#f59e0b,stroke-width:2px,color:#000,font-style:italic
+    
+    %% Apply Styles
+    class HasExpDecision,ExpDecision,CEDecision decisionNode
+    class DesignExp,DesignTest,RunTest,CollectEvidence,DesignCounterTest,RunTestCounter,CollectEvidenceCounter,RunExperiments,DesignCounterExperiments,RunCounterExperiments processNode
+    class UpdateStatus,ReportMd,RootCauseFound,RootCauseNotFound,ManagerMCP statusNode
+    class ContextFiles,ProjectFiles,ExperimentFiles contextNode
+    class E01C01Status,E01C02Status,E02C01Status,E02C02Status,E03C01Status,E03C02Status,E04C01Status,E04C02Status contextNode
+    class CurrentExpLabel,CurrentCounterExpLabel indicatorNode
+    
+    %% Title Styling
+    classDef titleNode fill:#1f2937,stroke:#374151,stroke-width:3px,color:#fff,font-size:16px
+    class Title titleNode
+    
+    %% Container Background Colors
+    style ExperimentsContainer fill:#1e3a8a15,stroke:#1e3a8a,stroke-width:2px
+    style CounterExpsContainer fill:#7c2d1215,stroke:#7c2d12,stroke-width:2px
+    style ContextPanel fill:#6b728015,stroke:#6b7280,stroke-width:2px
+    style FilesPanel fill:#37415115,stroke:#374151,stroke-width:1px
+    style ExperimentTree fill:#22c55e15,stroke:#22c55e,stroke-width:1px
+    style E01Tree fill:#ef444425,stroke:#ef4444,stroke-width:1px
+    style E02Tree fill:#ef444425,stroke:#ef4444,stroke-width:1px
+    style E03Tree fill:#22c55e25,stroke:#22c55e,stroke-width:1px
+    style E04Tree fill:#64748b25,stroke:#64748b,stroke-width:1px

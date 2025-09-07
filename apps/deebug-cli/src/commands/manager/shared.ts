@@ -102,9 +102,10 @@ export const generateHypotheses = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
+        debugLogPath: path.join(deebugDir, 'generate-hypotheses.log'),
       })
       .pipe(
-        Effect.timeout('5 minutes'),
+        Effect.timeout('15 minutes'),
         Effect.andThen(Schema.decode(Schema.parseJson(GenerateHypothesesInputResult))),
         Effect.withSpan('generateHypotheses'),
       )

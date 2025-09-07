@@ -49,7 +49,24 @@ Principled, structured debugging and root cause analysis
 
 ## TODO
 
-- [] Implement git worktree support
+- [ ] Web UI
+- [ ] Implement git worktree support
+  - use `git worktree` instead of copying the context directory if its a git repo
+  - naming pattern for worktree branches: `diligent/
+- [ ] Refine files/folder structure
+- [ ] Run TS in experiment test loop
+- [ ] Get rid of Inconclusive / disproven hypo results
+- [ ] Improve claude debug logfile output (currently JSONL)
+- [ ] Use repl as interactive debugger e.g. when prompt fails
+- [ ] Example files (for testing/refinement)
+  - `.diligent` folder in each workspace/experiment
+  - is each experiment its own worktree?
+- [ ] Help LLM to make MCP tool call easier
+- [ ] Improve `report.md` structure
+  - Not enough details
+  - Define each state in the state machine
+  - Want full section on solution
+- [ ] Rename to `rootcausefinder` / `diligent` / `dilagent`
 
 ## Other notes
 

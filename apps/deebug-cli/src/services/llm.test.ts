@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as ClaudeProvider from './claude.ts'
 import * as CodexProvider from './codex.ts'
 import { type LLMError, LLMService } from './llm.ts'
+import { createMcpServerLayer } from './mcp-server.ts'
 import { StateStore } from './state-store.ts'
 
 const providerLayers = [
@@ -24,9 +25,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
   let runtime: ManagedRuntime.ManagedRuntime<LLMService | CommandExecutor | StateStore, LLMError | PlatformError>
 
   beforeAll(async () => {
-    // Import MCP server layer for integration testing
-    const { createMcpServerLayer } = await import('./mcp-server.ts')
-
     // Create runtime with LLM provider, MCP server, and StateStore
     runtime = ManagedRuntime.make(
       Layer.mergeAll(

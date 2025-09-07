@@ -1,15 +1,23 @@
 {
-  "name": "@deebug/cli",
+  "name": "diligent",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "bin": {
     "deebug": "./dist/index.js"
   },
+  "files": [
+    "src",
+    "scripts",
+    "dist"
+  ],
   "scripts": {
     "build": "tsc --build",
+    "bundle": "bun build --target node --outfile dist/deebug src/main.ts && chmod +x dist/deebug",
     "dev": "bun src/main.ts",
     "test": "vitest"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@effect/ai": "^0.26.1",
