@@ -1,21 +1,17 @@
-import path from 'node:path'
 import * as Cli from '@effect/cli'
-import { Effect, Layer, Option } from 'effect'
-import { runRepl } from '../../repl.ts'
-import { ClaudeLLMLive } from '../../services/claude.ts'
-import { CodexLLMLive } from '../../services/codex.ts'
-import { getFreePort } from '../../services/free-port.ts'
-import { createMcpServerLayer } from '../../services/mcp-server.js'
+import { Effect } from 'effect'
+import { generateHypothesesCommand } from './generate-hypotheses.ts'
+import { reproCommand } from './repro.ts'
+import { runHypothesisWorkersCommand } from './run-hypotheses.ts'
 import {
   contextDirectoryOption,
   countOption,
   cwdOption,
-  generateHypotheses,
+  flakyOption,
   llmOption,
   portOption,
   promptOption,
   replOption,
-  runHypothesisWorker,
   workingDirectoryOption,
 } from './shared.ts'
 
@@ -30,74 +26,37 @@ export const allCommand = Cli.Command.make(
     port: portOption,
     repl: replOption,
     cwd: cwdOption,
+    flaky: flakyOption,
   },
-  ({ contextDirectory, workingDirectory, prompt, count, llm, port: portOption, repl: replOption, cwd: cwdOption }) =>
+  (options) =>
     Effect.gen(function* () {
-      const fallbackPort = yield* getFreePort
-      const port = Option.getOrElse(portOption, () => fallbackPort)
+      // First run reproduction
+      yield* reproCommand.handler({
+        contextDirectory: options.contextDirectory,
+        workingDirectory: options.workingDirectory,
+        prompt: options.prompt,
+        llm: options.llm,
+        flaky: options.flaky,
+        cwd: options.cwd,
+      })
 
-      return yield* Effect.gen(function* () {
-        const cwd = Option.getOrElse(cwdOption, () => process.cwd())
-        const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
-        const resolvedContextDirectory = path.resolve(cwd, contextDirectory)
+      // Then run generate-hypotheses
+      yield* generateHypothesesCommand.handler({
+        contextDirectory: options.contextDirectory,
+        workingDirectory: options.workingDirectory,
+        prompt: options.prompt,
+        count: options.count,
+        llm: options.llm,
+        cwd: options.cwd,
+      })
 
-        // Get prompt interactively if not provided
-        const problemPrompt = yield* Option.match(prompt, {
-          onNone: () =>
-            Cli.Prompt.text({
-              message: 'Enter problem description:',
-              validate: (input) =>
-                input.trim().length > 0 ? Effect.succeed(input) : Effect.fail('Problem description cannot be empty'),
-            }),
-          onSome: Effect.succeed,
-        })
-
-        const hypothesisCount = Option.getOrElse(count, () => undefined)
-
-        yield* Effect.log(`Context directory: ${resolvedContextDirectory}`)
-        yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
-        yield* Effect.log(`Problem: ${problemPrompt}`)
-        if (hypothesisCount) {
-          yield* Effect.log(`Generating ${hypothesisCount} hypotheses`)
-        }
-
-        // Generate hypotheses
-        yield* Effect.log(`Generating hypotheses...`)
-        const hypotheses = yield* generateHypotheses({
-          problemPrompt,
-          resolvedContextDirectory,
-          resolvedWorkingDirectory,
-          ...(hypothesisCount !== undefined && { hypothesisCount }),
-        })
-
-        yield* Effect.log(
-          `Running ${hypotheses.length} hypotheses:\n${hypotheses.map((e) => `- ${e.hypothesisId}: ${e.problemTitle}`).join('\n')}`,
-        )
-
-        // Run hypotheses
-        const fiber = yield* Effect.forEach(
-          hypotheses,
-          (hypothesis) =>
-            runHypothesisWorker({
-              resolvedWorkingDirectory,
-              port,
-              hypothesis,
-              llm,
-              cwd,
-            }),
-          { concurrency: 4 },
-        ).pipe(Effect.tapErrorCause(Effect.logError), Effect.forkScoped)
-
-        yield* Effect.log(`Starting MCP server on port ${port}...`)
-        yield* Effect.log(`MCP endpoint: http://localhost:${port}/mcp`)
-
-        if (Option.isSome(replOption) && replOption.value) {
-          yield* runRepl
-        }
-
-        yield* fiber
-      }).pipe(
-        Effect.provide(Layer.mergeAll(createMcpServerLayer(port), llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
-      )
+      // Finally run run-hypotheses
+      yield* runHypothesisWorkersCommand.handler({
+        workingDirectory: options.workingDirectory,
+        port: options.port,
+        llm: options.llm,
+        repl: options.repl,
+        cwd: options.cwd,
+      })
     }),
 )

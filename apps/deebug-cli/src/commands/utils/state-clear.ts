@@ -47,4 +47,3 @@ export const stateClearCommand = Cli.Command.make('state-clear', {}, () =>
     ),
   ),
 )
-

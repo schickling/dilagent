@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "bin": {
-    "deebug": "./dist/index.js"
+    "diligent": "./dist/index.js"
   },
   "files": [
     "src",
@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "tsc --build",
-    "bundle": "bun build --target node --outfile dist/deebug src/main.ts && chmod +x dist/deebug",
+    "bundle": "bun build --target node --outfile dist/diligent src/main.ts && chmod +x dist/diligent",
     "dev": "bun src/main.ts",
     "test": "vitest"
   },

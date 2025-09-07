@@ -50,6 +50,7 @@ Principled, structured debugging and root cause analysis
 ## TODO
 
 - [ ] Web UI
+- [ ] Adjust MCP tools to be event-based (instead of setting the state directly)
 - [ ] Implement git worktree support
   - use `git worktree` instead of copying the context directory if its a git repo
   - naming pattern for worktree branches: `diligent/

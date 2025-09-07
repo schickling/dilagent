@@ -3,12 +3,22 @@ import * as Cli from '@effect/cli'
 import { Command, FileSystem } from '@effect/platform'
 import { Effect, Option, Schema } from 'effect'
 import { instructionsMd, makeContextMd } from '../../prompts/hypothesis-worker.ts'
-import { generateHypothesisIdeasPrompt, toolEnabledSystemPrompt } from '../../prompts/manager.ts'
+import {
+  generateHypothesesFromReproductionPrompt,
+  generateHypothesisIdeasPrompt,
+  toolEnabledSystemPrompt,
+} from '../../prompts/manager.ts'
+import {
+  initialReproductionPrompt,
+  refineReproductionPrompt,
+  reproductionSystemPrompt,
+} from '../../prompts/reproduction.ts'
 import {
   GenerateHypothesesInputResult,
   type HypothesisInput,
   HypothesisInput as HypothesisInputSchema,
 } from '../../schemas/hypothesis.ts'
+import { ReproductionResult } from '../../schemas/reproduction.ts'
 import { LLMService } from '../../services/llm.ts'
 import { hypothesisCommand } from '../hypothesis.ts'
 
@@ -17,6 +27,9 @@ export const DEEBUG_DIR = '.deebug'
 export const HYPOTHESES_FILE = 'hypotheses.json'
 export const CONTEXT_DIR = 'context'
 export const GENERATE_HYPOTHESES_PROMPT_FILE = 'generate-hypotheses.md'
+export const REPRODUCTION_FILE = 'reproduction.json'
+export const REPRODUCTION_SCRIPT_FILE = 'repro.ts'
+export const REPRODUCTION_LOG_FILE = 'reproduction.log'
 
 // Reusable CLI option definitions
 export const workingDirectoryOption = Cli.Options.directory('working-directory').pipe(
@@ -57,6 +70,11 @@ export const cwdOption = Cli.Options.directory('cwd').pipe(
   Cli.Options.withDescription('Current working directory'),
 )
 
+export const flakyOption = Cli.Options.boolean('flaky').pipe(
+  Cli.Options.optional,
+  Cli.Options.withDescription('Indicate that this is a flaky/intermittent bug'),
+)
+
 // Shared utility functions
 export const generateHypotheses = ({
   problemPrompt,
@@ -83,18 +101,46 @@ export const generateHypotheses = ({
     const contextDir = path.join(deebugDir, CONTEXT_DIR)
     yield* Command.make('cp', '-r', resolvedContextDirectory, contextDir).pipe(Command.string)
 
-    const prompt = generateHypothesisIdeasPrompt({
-      problemPrompt,
-      resolvedContextDirectory: contextDir,
-      ...(hypothesisCount !== undefined && { hypothesisCount }),
-    })
+    // Check for existing reproduction results
+    const reproductionFile = path.join(deebugDir, REPRODUCTION_FILE)
+    const reproduction = yield* fs.readFileString(reproductionFile).pipe(
+      Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult))),
+      Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
+    )
+
+    // Choose prompt based on whether reproduction exists
+    const prompt =
+      reproduction?._tag === 'Success'
+        ? generateHypothesesFromReproductionPrompt({
+            problemPrompt,
+            resolvedContextDirectory: contextDir,
+            reproduction,
+            ...(hypothesisCount !== undefined && { hypothesisCount }),
+          })
+        : generateHypothesisIdeasPrompt({
+            problemPrompt,
+            resolvedContextDirectory: contextDir,
+            ...(hypothesisCount !== undefined && { hypothesisCount }),
+          })
 
     yield* fs.writeFileString(path.join(deebugDir, GENERATE_HYPOTHESES_PROMPT_FILE), prompt)
 
-    yield* Effect.log(`Generating hypotheses from problem prompt. Trying to reproduce the problem...`)
+    if (reproduction?._tag === 'Success') {
+      const typeLabel = {
+        immediate: '⚡',
+        delayed: '⏳',
+        environmental: '🔧',
+      }[reproduction.reproductionType]
 
-    // TODO do problem reproduction in separate step first (via separate prompt)
-    // refine/standartize reproduction by creating a `repro.ts` file that reproduces the problem
+      yield* Effect.log(
+        `Found existing reproduction (${typeLabel} ${reproduction.reproductionType}) - generating hypotheses from reproduction data with ${(reproduction.confidence * 100).toFixed(1)}% confidence`,
+      )
+    } else {
+      yield* Effect.log(
+        `No reproduction found - generating hypotheses with traditional exploration and reproduction approach`,
+      )
+      yield* Effect.log(`💡 Hint: Run 'deebug manager repro' first for more focused hypothesis generation`)
+    }
 
     const HypothesisInputResult = yield* llm
       .prompt(prompt, {
@@ -205,3 +251,118 @@ export const loadExperiments = (resolvedWorkingDirectory: string) =>
 
     return hypotheses
   }).pipe(Effect.withSpan('loadExperiments'))
+
+export const reproduceIssue = ({
+  problemPrompt,
+  resolvedContextDirectory,
+  resolvedWorkingDirectory,
+  isFlaky,
+  userFeedback,
+}: {
+  problemPrompt: string
+  resolvedContextDirectory: string
+  resolvedWorkingDirectory: string
+  isFlaky: boolean
+  userFeedback?: string[]
+}) =>
+  Effect.gen(function* () {
+    const llm = yield* LLMService
+    const fs = yield* FileSystem.FileSystem
+
+    yield* fs.makeDirectory(resolvedWorkingDirectory, { recursive: true })
+
+    // Create .deebug directory for internal files
+    const deebugDir = path.join(resolvedWorkingDirectory, DEEBUG_DIR)
+    yield* fs.makeDirectory(deebugDir, { recursive: true })
+
+    // Copy context directory to canonical location in .deebug
+    const contextDir = path.join(deebugDir, CONTEXT_DIR)
+    yield* Command.make('cp', '-r', resolvedContextDirectory, contextDir).pipe(Command.string)
+
+    // Check if this is a retry attempt
+    const reproductionFile = path.join(deebugDir, REPRODUCTION_FILE)
+    const previousAttempt = yield* fs.readFileString(reproductionFile).pipe(
+      Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult))),
+      Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
+    )
+
+    // Determine which prompt to use
+    const prompt =
+      previousAttempt?._tag === 'NeedMoreInfo' && userFeedback
+        ? refineReproductionPrompt({
+            problemPrompt,
+            contextDirectory: contextDir,
+            isFlaky,
+            previousAttempt,
+            userFeedback,
+          })
+        : initialReproductionPrompt({
+            problemPrompt,
+            contextDirectory: contextDir,
+            isFlaky,
+          })
+
+    yield* Effect.log('Starting issue reproduction...')
+
+    const reproductionResult = yield* llm
+      .prompt(prompt, {
+        systemPrompt: reproductionSystemPrompt,
+        useBestModel: true,
+        skipPermissions: true,
+        workingDir: contextDir,
+        debugLogPath: path.join(deebugDir, REPRODUCTION_LOG_FILE),
+      })
+      .pipe(
+        Effect.timeout('20 minutes'),
+        Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult))),
+        Effect.withSpan('reproduceIssue'),
+      )
+
+    // Save reproduction result
+    const reproductionJson = yield* Schema.encode(Schema.parseJson(ReproductionResult))(reproductionResult)
+    yield* fs.writeFileString(reproductionFile, reproductionJson)
+
+    // If successful, also save the repro.ts script
+    if (reproductionResult._tag === 'Success') {
+      const reproScriptFile = path.join(deebugDir, REPRODUCTION_SCRIPT_FILE)
+      yield* fs.writeFileString(reproScriptFile, reproductionResult.reproScript)
+
+      const typeLabel = {
+        immediate: '⚡',
+        delayed: '⏳',
+        environmental: '🔧',
+      }[reproductionResult.reproductionType]
+
+      yield* Effect.log(`✅ Reproduction created (${typeLabel} ${reproductionResult.reproductionType})`)
+
+      if (reproductionResult.executionTimeMs !== undefined) {
+        yield* Effect.log(`⏱️  Execution time: ${reproductionResult.executionTimeMs}ms`)
+      }
+
+      if (reproductionResult.setupRequirements?.length) {
+        yield* Effect.log(`📋 Setup required: ${reproductionResult.setupRequirements.join(', ')}`)
+      }
+
+      if (reproductionResult.minimizationNotes) {
+        yield* Effect.log(`📝 ${reproductionResult.minimizationNotes}`)
+      }
+
+      yield* Effect.log(`📄 Reproduction script saved to ${reproScriptFile}`)
+    }
+
+    return reproductionResult
+  }).pipe(Effect.withSpan('reproduceIssue'))
+
+export const loadReproduction = (resolvedWorkingDirectory: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const deebugDir = path.join(resolvedWorkingDirectory, DEEBUG_DIR)
+    const reproductionFile = path.join(deebugDir, REPRODUCTION_FILE)
+
+    const reproductionJson = yield* fs.readFileString(reproductionFile)
+    const reproduction = yield* Schema.decode(Schema.parseJson(ReproductionResult))(reproductionJson)
+
+    yield* Effect.log(`Loaded reproduction result from ${reproductionFile}`)
+
+    return reproduction
+  }).pipe(Effect.withSpan('loadReproduction'))
