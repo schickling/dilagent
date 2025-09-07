@@ -1,0 +1,23 @@
+{
+  "name": "@dilagent/monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "vitest run --reporter=verbose",
+    "test:watch": "vitest --reporter=verbose",
+    "lint": "biome check .",
+    "typecheck": "tsc --build tsconfig.all.json"
+  },
+  "devDependencies": {
+    "@openai/codex": "^0.30.0",
+    "@biomejs/biome": "^2.2.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "overrides": {}
+  },
+  "packageManager": "pnpm@10.13.1+sha512.37ebf1a5c7a30d5fabe0c5df44ee8da4c965ca0c5af3dbab28c3a1681b70a256218d05c81c9c0dcf767ef6b8551eb5b960042b9ed4300c59242336377e01cfad"
+}

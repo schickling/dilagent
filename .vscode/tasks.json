@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "TypeScript: Watch Build All",
+      "type": "shell",
+      "command": "tsc",
+      "args": ["--build", "--watch", "tsconfig.all.json"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "isBackground": true,
+      "problemMatcher": ["$tsc-watch"],
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    }
+  ]
+}

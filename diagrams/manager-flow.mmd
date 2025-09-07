@@ -1,0 +1,87 @@
+flowchart TD
+    Start([🏁 START<br/>User Problem]) --> ReproContainer
+    
+    subgraph ReproContainer ["🔬 REPRODUCTION STAGE"]
+        direction TB
+        Repro["dilagent manager repro<br/>• Create minimal repro.ts<br/>• Measure timing<br/>• Document setup"]
+        
+        Repro --> Success{✅ Success<br/>⚡/⏳/🔧}
+        Repro --> NeedInfo{❓ NeedMoreInfo<br/>Questions for user}
+        
+        NeedInfo --> UserQA[👤 User Q&A<br/>Answer questions]
+        UserQA --> Repro
+    end
+    
+    subgraph HypoGenContainer ["🧠 HYPOTHESIS GENERATION"]
+        direction TB
+        HypothesisGen["dilagent manager generate-hypotheses<br/>• Uses reproduction data<br/>• Context-aware hypotheses<br/>• Based on repro type"]
+        
+        HypothesesFile[(📄 hypotheses.json<br/>H001, H002, H003...)]
+        
+        HypothesisGen --> HypothesesFile
+    end
+    
+    subgraph HypoTestContainer ["🧪 HYPOTHESIS TESTING"]
+        direction LR
+        Testing["dilagent manager run-hypotheses<br/>• Parallel execution<br/>• Individual worktrees<br/>• Independent testing"]
+        
+        subgraph H001Container ["H001"]
+            direction TB
+            H001Proven[✅ Proven<br/>Root cause found]
+            H001Disproven[❌ Disproven<br/>Not the issue]
+            H001Diagnosed[🎯 Diagnosed<br/>Issue understood]
+            H001Inconclusive[❓ Inconclusive<br/>Need more data]
+        end
+        
+        subgraph H002Container ["H002"]
+            H002[" "]
+        end
+        
+        subgraph H003Container ["H003"]
+            H003[" "]
+        end
+        
+        Testing --> H001Container
+        Testing --> H002Container
+        Testing --> H003Container
+        
+        Results[📊 Results Summary]
+        H001Proven --> Results
+        H001Disproven --> Results
+        H001Diagnosed --> Results
+        H001Inconclusive --> Results
+        H002 --> Results
+        H003 --> Results
+    end
+    
+    subgraph REPLContainer ["💬 INTERACTIVE EXPLORATION"]
+        direction TB
+        REPL["dilagent manager repl<br/>Interactive debugging"]
+    end
+    
+    Success --> HypothesisGen
+    HypothesesFile --> Testing
+    
+    Results --> OptionalREPL{🤔 Need Interactive<br/>Exploration?}
+    OptionalREPL -->|Yes| REPL
+    OptionalREPL -->|No| End([🏁 END<br/>Issue resolved])
+    
+    REPL --> End
+    
+    
+    %% Styling
+    classDef startEnd fill:#e1f5fe
+    classDef process fill:#f3e5f5
+    classDef decision fill:#fff3e0
+    classDef data fill:#e8f5e8
+    classDef success fill:#c8e6c9
+    classDef error fill:#ffcdd2
+    classDef info fill:#e3f2fd
+    
+    class Start,End startEnd
+    class Repro,HypothesisGen,Testing,REPL,All process
+    class Success,Failed,NeedInfo,OptionalREPL decision
+    class HypothesesFile data
+    class Proven,Diagnosed success
+    class Disproven,Failed error
+    class UserQA,FallbackHypothesis info
