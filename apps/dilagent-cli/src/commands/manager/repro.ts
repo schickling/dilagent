@@ -1,32 +1,29 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
-import { Effect, Option } from 'effect'
+import { FileSystem } from '@effect/platform'
+import { Effect, Option, Schema } from 'effect'
+import {
+  initialReproductionPrompt,
+  refineReproductionPrompt,
+  reproductionSystemPrompt,
+} from '../../prompts/reproduction.ts'
+import { type ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
+import { GitManagerService } from '../../services/git-manager.ts'
+import { LLMService } from '../../services/llm.ts'
+import { StateStore } from '../../services/state-store.ts'
+import { TimelineService } from '../../services/timeline.ts'
+import { WorkingDirService } from '../../services/working-dir.ts'
+import { generateRunSlug } from '../../utils/run-slug.ts'
 import {
   contextDirectoryOption,
   cwdOption,
   flakyOption,
   llmOption,
   promptOption,
-  reproduceIssue,
   workingDirectoryOption,
 } from './shared.ts'
-
-const askUserQuestions = (questions: string[]) =>
-  Effect.gen(function* () {
-    const answers: string[] = []
-
-    for (const [i, question] of questions.entries()) {
-      const answer = yield* Cli.Prompt.text({
-        message: `Q${i + 1}: ${question}`,
-        validate: (input) => Effect.succeed(input), // Accept any input
-      })
-      answers.push(answer.trim())
-    }
-
-    return answers
-  }).pipe(Effect.withSpan('askUserQuestions'))
 
 export const reproCommand = Cli.Command.make(
   'repro',
@@ -129,3 +126,164 @@ export const reproCommand = Cli.Command.make(
       return result
     }).pipe(Effect.provide(llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
 ).pipe(Cli.Command.withDescription('Reproduce an issue to understand its behavior and generate diagnostic information'))
+
+const reproduceIssue = ({
+  problemPrompt,
+  resolvedContextDirectory,
+  resolvedWorkingDirectory,
+  isFlaky,
+  userFeedback,
+}: {
+  problemPrompt: string
+  resolvedContextDirectory: string
+  resolvedWorkingDirectory: string
+  isFlaky: boolean
+  userFeedback?: string[]
+}) =>
+  Effect.gen(function* () {
+    const llm = yield* LLMService
+    const fs = yield* FileSystem.FileSystem
+    const workingDirService = yield* WorkingDirService
+    const stateStore = yield* StateStore
+    const timelineService = yield* TimelineService
+    const gitManager = yield* GitManagerService
+
+    // Initialize working directory structure
+    yield* workingDirService.initializeDilagentStructure(resolvedWorkingDirectory)
+
+    // Generate run ID and setup context directory as git repository
+    const runId = generateRunSlug('reproduction')
+    yield* gitManager.setupContextRepo(resolvedContextDirectory, resolvedWorkingDirectory, runId)
+    const contextDir = workingDirService.getPaths(resolvedWorkingDirectory).contextRepo
+
+    // Initialize timeline
+    yield* timelineService.initializeTimeline(resolvedWorkingDirectory, runId)
+    yield* timelineService.enableAutoPersist()
+    yield* timelineService.recordEvent({
+      event: 'Reproduction phase started',
+      phase: 'reproduction',
+    })
+
+    // Check for existing reproduction results
+    const reproductionJson = yield* fs
+      .readFileString(path.join(workingDirService.getPaths(resolvedWorkingDirectory).artifacts, 'reproduction.json'))
+      .pipe(
+        Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResultFile))),
+        Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
+      )
+
+    // Determine which prompt to use
+    const prompt =
+      reproductionJson?._tag === 'NeedMoreInfo' && userFeedback
+        ? refineReproductionPrompt({
+            problemPrompt,
+            contextDirectory: contextDir,
+            isFlaky,
+            previousAttempt: reproductionJson,
+            userFeedback,
+          })
+        : initialReproductionPrompt({
+            problemPrompt,
+            contextDirectory: contextDir,
+            isFlaky,
+          })
+
+    yield* Effect.log('Starting issue reproduction...')
+    yield* timelineService.recordEvent({
+      event: 'LLM reproduction request started',
+      phase: 'reproduction',
+    })
+
+    const reproductionResult = yield* llm
+      .prompt(prompt, {
+        systemPrompt: reproductionSystemPrompt,
+        useBestModel: true,
+        skipPermissions: true,
+        workingDir: contextDir,
+        debugLogPath: path.join(workingDirService.getPaths(resolvedWorkingDirectory).logs, 'reproduction.log'),
+      })
+      .pipe(
+        Effect.timeout('20 minutes'),
+        Effect.andThen(Schema.decode(ReproductionResultFile)),
+        Effect.withSpan('reproduceIssue'),
+      )
+
+    // Save reproduction result as artifact
+    const artifactsDir = workingDirService.getPaths(resolvedWorkingDirectory).artifacts
+    const reproductionFile = path.join(artifactsDir, 'reproduction.json')
+    const reproductionJsonContent = yield* Schema.encode(Schema.parseJson(ReproductionResultFile))(reproductionResult)
+    yield* fs.writeFileString(reproductionFile, reproductionJsonContent)
+
+    // Record timeline event
+    yield* timelineService.recordEvent({
+      event: `Reproduction ${reproductionResult._tag.toLowerCase()}`,
+      phase: 'reproduction',
+      metadata:
+        reproductionResult._tag === 'Success'
+          ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
+          : undefined,
+    })
+
+    // Update StateStore with reproduction results
+    yield* stateStore.updateDilagentState((state) => ({
+      ...state,
+      currentPhase: 'reproduction' as const,
+      reproduction: {
+        status:
+          reproductionResult._tag === 'Success'
+            ? ('success' as const)
+            : reproductionResult._tag === 'NeedMoreInfo'
+              ? ('failed' as const)
+              : ('failed' as const),
+        attempts: 1, // TODO: Track actual attempts if refined
+        confidence: reproductionResult._tag === 'Success' ? reproductionResult.confidence : 0,
+      },
+    }))
+
+    yield* Effect.log(`Updated state with reproduction result: ${reproductionResult._tag}`)
+
+    // If successful, also save the repro.ts script
+    if (reproductionResult._tag === 'Success') {
+      const reproScriptFile = path.join(artifactsDir, 'repro.ts')
+      yield* fs.writeFileString(reproScriptFile, reproductionResult.reproScript)
+
+      const typeLabel = {
+        immediate: '⚡',
+        delayed: '⏳',
+        environmental: '🔧',
+      }[reproductionResult.reproductionType]
+
+      yield* Effect.log(`✅ Reproduction created (${typeLabel} ${reproductionResult.reproductionType})`)
+
+      if (reproductionResult.executionTimeMs !== undefined) {
+        yield* Effect.log(`⏱️  Execution time: ${reproductionResult.executionTimeMs}ms`)
+      }
+
+      if (reproductionResult.setupRequirements?.length) {
+        yield* Effect.log(`📋 Setup required: ${reproductionResult.setupRequirements.join(', ')}`)
+      }
+
+      if (reproductionResult.minimizationNotes) {
+        yield* Effect.log(`📝 ${reproductionResult.minimizationNotes}`)
+      }
+
+      yield* Effect.log(`📄 Reproduction script saved to ${reproScriptFile}`)
+    }
+
+    return reproductionResult
+  }).pipe(Effect.withSpan('reproduceIssue'))
+
+const askUserQuestions = (questions: string[]) =>
+  Effect.gen(function* () {
+    const answers: string[] = []
+
+    for (const [i, question] of questions.entries()) {
+      const answer = yield* Cli.Prompt.text({
+        message: `Q${i + 1}: ${question}`,
+        validate: (input) => Effect.succeed(input), // Accept any input
+      })
+      answers.push(answer.trim())
+    }
+
+    return answers
+  }).pipe(Effect.withSpan('askUserQuestions'))

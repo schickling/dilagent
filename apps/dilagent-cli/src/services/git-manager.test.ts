@@ -190,7 +190,9 @@ describe('GitManagerService', () => {
               // Add and commit files
               yield* Command.exitCode(Command.make('git', 'add', '.').pipe(Command.workingDirectory(contextDir)))
               yield* Command.exitCode(
-                Command.make('git', 'commit', '-m', 'Initial commit').pipe(Command.workingDirectory(contextDir)),
+                Command.make('git', 'commit', '--no-verify', '-m', 'Initial commit').pipe(
+                  Command.workingDirectory(contextDir),
+                ),
               )
             }).pipe(Effect.provide(TestLayer)),
           )
@@ -488,14 +490,6 @@ describe('GitManagerService', () => {
     it('FIXED: commands now use GitManagerService for context-repo initialization', async () => {
       // This test documents the fix - commands now properly use GitManagerService
 
-      // PREVIOUS BEHAVIOR (was wrong):
-      // - reproduceIssue used: Command.make('cp', '-r', ...)
-      // - Result: plain directory copy, no git
-
-      // CURRENT BEHAVIOR (fixed):
-      // - reproduceIssue uses: GitManagerService.setupContextRepo()
-      // - Result: proper git repository with version control
-
       await Effect.runPromise(
         Effect.gen(function* () {
           const service = yield* GitManagerService
@@ -508,9 +502,6 @@ describe('GitManagerService', () => {
 
           // This now passes because commands use GitManagerService:
           expect(gitExists).toBe(true) // ✅ Commands now produce proper git repos
-
-          // The fix: reproduceIssue() and generateHypotheses() functions
-          // now use GitManagerService.setupContextRepo() instead of cp commands
         }).pipe(Effect.provide(TestLayer)),
       )
     })

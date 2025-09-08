@@ -33,6 +33,37 @@ describe('run slug utilities', () => {
       const today = new Date().toISOString().split('T')[0]
       expect(slug).toBe(`${today}-${context}`)
     })
+
+    it('should sanitize context with spaces and special characters', () => {
+      const context = 'Auth Bug Fix!'
+      const slug = generateRunSlug(context)
+
+      const today = new Date().toISOString().split('T')[0]
+      expect(slug).toBe(`${today}-auth-bug-fix`)
+    })
+
+    it('should sanitize context with mixed characters', () => {
+      const context = 'Memory_Leak@Component#1'
+      const slug = generateRunSlug(context)
+
+      const today = new Date().toISOString().split('T')[0]
+      expect(slug).toBe(`${today}-memory-leak-component-1`)
+    })
+
+    it('should handle empty context', () => {
+      const slug = generateRunSlug('')
+
+      const today = new Date().toISOString().split('T')[0]
+      expect(slug).toBe(today)
+    })
+
+    it('should collapse multiple non-alphanumeric characters into single dashes', () => {
+      const context = 'Bug!!!   With   Spaces'
+      const slug = generateRunSlug(context)
+
+      const today = new Date().toISOString().split('T')[0]
+      expect(slug).toBe(`${today}-bug-with-spaces`)
+    })
   })
 
   describe('generateRunSlugForDate', () => {

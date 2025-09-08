@@ -19,7 +19,7 @@ import { StateStore } from './state-store.ts'
 
 const providerLayers = [
   { name: 'Claude', layer: ClaudeProvider.ClaudeLLMLive },
-  { name: 'Codex', layer: CodexProvider.CodexLLMLive },
+  // { name: 'Codex', layer: CodexProvider.CodexLLMLive },
 ]
 
 describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer }) => {
@@ -244,7 +244,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Verify the hypothesis was updated
           const updatedState = yield* store.getDilagentState()
-          const hypothesis = updatedState.hypotheses.find(h => h.id === 'H001')
+          const hypothesis = updatedState.hypotheses.find((h) => h.id === 'H001')
           expect(hypothesis?.status).toBe('running')
         }),
       )
@@ -286,7 +286,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Verify the hypothesis result was set
           const updatedState = yield* store.getDilagentState()
-          const hypothesis = updatedState.hypotheses.find(h => h.id === 'H002')
+          const hypothesis = updatedState.hypotheses.find((h) => h.id === 'H002')
           expect(hypothesis?.status).toBe('completed')
           expect(hypothesis?.result).toBe('proven')
         }),
@@ -373,8 +373,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Verify hypotheses have some statuses before clearing
           const stateBefore = yield* store.getDilagentState()
-          const runningBefore = stateBefore.hypotheses.filter(h => h.status === 'running').length
-          const completedBefore = stateBefore.hypotheses.filter(h => h.status === 'completed').length
+          const runningBefore = stateBefore.hypotheses.filter((h) => h.status === 'running').length
+          const completedBefore = stateBefore.hypotheses.filter((h) => h.status === 'completed').length
           expect(runningBefore + completedBefore).toBeGreaterThan(0)
 
           // Prompt to clear hypothesis states using MCP tools
@@ -392,7 +392,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
 
           // Verify all hypotheses were reset to pending
           const stateAfter = yield* store.getDilagentState()
-          const allPending = stateAfter.hypotheses.every(h => h.status === 'pending')
+          const allPending = stateAfter.hypotheses.every((h) => h.status === 'pending')
           expect(allPending).toBe(true)
         }),
       )

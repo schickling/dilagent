@@ -2,17 +2,13 @@ import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { FileSystem } from '@effect/platform'
 import { Effect, Option, Schema } from 'effect'
+import { generateRunSlug } from '../../utils/run-slug.ts'
 import { instructionsMd, makeContextMd } from '../../prompts/hypothesis-worker.ts'
 import {
   generateHypothesesFromReproductionPrompt,
   generateHypothesisIdeasPrompt,
   toolEnabledSystemPrompt,
 } from '../../prompts/manager.ts'
-import {
-  initialReproductionPrompt,
-  refineReproductionPrompt,
-  reproductionSystemPrompt,
-} from '../../prompts/reproduction.ts'
 import {
   GenerateHypothesesInputResult,
   type HypothesisInput,
@@ -80,14 +76,6 @@ export const flakyOption = Cli.Options.boolean('flaky').pipe(
 )
 
 // Helper functions
-const generateRunSlug = (context?: string): string => {
-  const date = new Date().toISOString().split('T')[0]! // YYYY-MM-DD, guaranteed to exist
-  if (context) {
-    const sanitizedContext = context.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    return `${date}-${sanitizedContext}`
-  }
-  return date
-}
 
 // Shared utility functions
 export const generateHypotheses = ({
@@ -107,6 +95,7 @@ export const generateHypotheses = ({
     const workingDirService = yield* WorkingDirService
     const timelineService = yield* TimelineService
     const gitManager = yield* GitManagerService
+    const stateStore = yield* StateStore
 
     // Initialize working directory structure if not exists
     yield* workingDirService.initializeDilagentStructure(resolvedWorkingDirectory)
@@ -211,6 +200,30 @@ export const generateHypotheses = ({
 
     yield* Effect.log(`All hypotheses prepared and ready to run`)
 
+    // Update StateStore with generated hypotheses
+    yield* stateStore.updateDilagentState((state) => ({
+      ...state,
+      currentPhase: 'hypothesis-testing' as const,
+      phaseStartedAt: new Date().toISOString(),
+      hypotheses: hypotheses.map((hypothesis) => {
+        const hypothesisSlug = hypothesis.problemTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+        const runId = generateRunSlug('hypothesis-testing')
+        return {
+          id: hypothesis.hypothesisId,
+          slug: hypothesisSlug,
+          branch: `dilagent/${runId}/${hypothesis.hypothesisId}-${hypothesisSlug}`,
+          worktree: `${hypothesis.hypothesisId}-${hypothesisSlug}`,
+          status: 'pending' as const,
+        }
+      }),
+      overallProgress: {
+        ...state.overallProgress,
+        totalHypotheses: hypotheses.length,
+      },
+    }))
+
+    yield* Effect.log(`Updated state with ${hypotheses.length} hypotheses`)
+
     return hypotheses
   }).pipe(Effect.withSpan('generateExperiments'))
 
@@ -258,17 +271,59 @@ export const runHypothesisWorker = ({
   cwd: string
 }) =>
   Effect.gen(function* () {
+    const stateStore = yield* StateStore
     const hypothesisWorkTree = path.join(resolvedWorkingDirectory, hypothesis.hypothesisId)
+    const startTime = Date.now()
 
-    // Experiment is already prepared during generation, just run it
-    yield* hypothesisCommand.handler({
-      managerPort: port,
-      worktree: hypothesisWorkTree,
-      llm,
-      showLogsOption: Option.none(),
-      cwdOption: Option.some(cwd),
+    // Mark hypothesis as running
+    yield* stateStore.updateHypothesis(hypothesis.hypothesisId, {
+      status: 'running',
+      startedAt: new Date().toISOString(),
     })
-  }).pipe(Effect.withSpan('runHypothesisWorkers'))
+
+    yield* Effect.log(`🔄 Started hypothesis ${hypothesis.hypothesisId}: ${hypothesis.problemTitle}`)
+
+    // Run the experiment with proper Effect error handling
+    const runExperiment = Effect.gen(function* () {
+      yield* hypothesisCommand.handler({
+        managerPort: port,
+        worktree: hypothesisWorkTree,
+        llm,
+        showLogsOption: Option.none(),
+        cwdOption: Option.some(cwd),
+      })
+
+      // Mark as completed with execution time tracking
+      const executionTimeMs = Date.now() - startTime
+      yield* stateStore.updateHypothesis(hypothesis.hypothesisId, {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        executionTimeMs,
+      })
+
+      yield* Effect.log(`✅ Completed hypothesis ${hypothesis.hypothesisId} (${executionTimeMs}ms)`)
+    })
+
+    // Handle errors using Effect's error handling
+    yield* runExperiment.pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          const executionTimeMs = Date.now() - startTime
+          
+          // Mark as failed/inconclusive if there's an error
+          yield* stateStore.updateHypothesis(hypothesis.hypothesisId, {
+            status: 'completed',
+            result: 'inconclusive',
+            completedAt: new Date().toISOString(),
+            executionTimeMs,
+          })
+
+          yield* Effect.log(`❌ Failed hypothesis ${hypothesis.hypothesisId} after ${executionTimeMs}ms: ${error}`)
+          return yield* Effect.fail(error)
+        })
+      )
+    )
+  }).pipe(Effect.withSpan('runHypothesisWorker'))
 
 export const loadExperiments = (resolvedWorkingDirectory: string) =>
   Effect.gen(function* () {
@@ -285,133 +340,6 @@ export const loadExperiments = (resolvedWorkingDirectory: string) =>
     return hypotheses
   }).pipe(Effect.withSpan('loadExperiments'))
 
-export const reproduceIssue = ({
-  problemPrompt,
-  resolvedContextDirectory,
-  resolvedWorkingDirectory,
-  isFlaky,
-  userFeedback,
-}: {
-  problemPrompt: string
-  resolvedContextDirectory: string
-  resolvedWorkingDirectory: string
-  isFlaky: boolean
-  userFeedback?: string[]
-}) =>
-  Effect.gen(function* () {
-    const llm = yield* LLMService
-    const fs = yield* FileSystem.FileSystem
-    const workingDirService = yield* WorkingDirService
-    const _stateStore = yield* StateStore
-    const timelineService = yield* TimelineService
-    const gitManager = yield* GitManagerService
-
-    // Initialize working directory structure
-    yield* workingDirService.initializeDilagentStructure(resolvedWorkingDirectory)
-
-    // Generate run ID and setup context directory as git repository
-    const runId = generateRunSlug('reproduction')
-    yield* gitManager.setupContextRepo(resolvedContextDirectory, resolvedWorkingDirectory, runId)
-    const contextDir = workingDirService.getPaths(resolvedWorkingDirectory).contextRepo
-
-    // Initialize timeline
-    yield* timelineService.initializeTimeline(resolvedWorkingDirectory, runId)
-    yield* timelineService.enableAutoPersist()
-    yield* timelineService.recordEvent({
-      event: 'Reproduction phase started',
-      phase: 'reproduction',
-    })
-
-    // Check for existing reproduction results
-    const reproductionJson = yield* fs
-      .readFileString(path.join(workingDirService.getPaths(resolvedWorkingDirectory).artifacts, 'reproduction.json'))
-      .pipe(
-        Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResultFile))),
-        Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
-      )
-
-    // Determine which prompt to use
-    const prompt =
-      reproductionJson?._tag === 'NeedMoreInfo' && userFeedback
-        ? refineReproductionPrompt({
-            problemPrompt,
-            contextDirectory: contextDir,
-            isFlaky,
-            previousAttempt: reproductionJson,
-            userFeedback,
-          })
-        : initialReproductionPrompt({
-            problemPrompt,
-            contextDirectory: contextDir,
-            isFlaky,
-          })
-
-    yield* Effect.log('Starting issue reproduction...')
-    yield* timelineService.recordEvent({
-      event: 'LLM reproduction request started',
-      phase: 'reproduction',
-    })
-
-    const reproductionResult = yield* llm
-      .prompt(prompt, {
-        systemPrompt: reproductionSystemPrompt,
-        useBestModel: true,
-        skipPermissions: true,
-        workingDir: contextDir,
-        debugLogPath: path.join(workingDirService.getPaths(resolvedWorkingDirectory).logs, 'reproduction.log'),
-      })
-      .pipe(
-        Effect.timeout('20 minutes'),
-        Effect.andThen(Schema.decode(ReproductionResultFile)),
-        Effect.withSpan('reproduceIssue'),
-      )
-
-    // Save reproduction result as artifact
-    const artifactsDir = workingDirService.getPaths(resolvedWorkingDirectory).artifacts
-    const reproductionFile = path.join(artifactsDir, 'reproduction.json')
-    const reproductionJsonContent = yield* Schema.encode(Schema.parseJson(ReproductionResultFile))(reproductionResult)
-    yield* fs.writeFileString(reproductionFile, reproductionJsonContent)
-
-    // Record timeline event
-    yield* timelineService.recordEvent({
-      event: `Reproduction ${reproductionResult._tag.toLowerCase()}`,
-      phase: 'reproduction',
-      metadata:
-        reproductionResult._tag === 'Success'
-          ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
-          : undefined,
-    })
-
-    // If successful, also save the repro.ts script
-    if (reproductionResult._tag === 'Success') {
-      const reproScriptFile = path.join(artifactsDir, 'repro.ts')
-      yield* fs.writeFileString(reproScriptFile, reproductionResult.reproScript)
-
-      const typeLabel = {
-        immediate: '⚡',
-        delayed: '⏳',
-        environmental: '🔧',
-      }[reproductionResult.reproductionType]
-
-      yield* Effect.log(`✅ Reproduction created (${typeLabel} ${reproductionResult.reproductionType})`)
-
-      if (reproductionResult.executionTimeMs !== undefined) {
-        yield* Effect.log(`⏱️  Execution time: ${reproductionResult.executionTimeMs}ms`)
-      }
-
-      if (reproductionResult.setupRequirements?.length) {
-        yield* Effect.log(`📋 Setup required: ${reproductionResult.setupRequirements.join(', ')}`)
-      }
-
-      if (reproductionResult.minimizationNotes) {
-        yield* Effect.log(`📝 ${reproductionResult.minimizationNotes}`)
-      }
-
-      yield* Effect.log(`📄 Reproduction script saved to ${reproScriptFile}`)
-    }
-
-    return reproductionResult
-  }).pipe(Effect.withSpan('reproduceIssue'))
 
 export const loadReproduction = (resolvedWorkingDirectory: string) =>
   Effect.gen(function* () {

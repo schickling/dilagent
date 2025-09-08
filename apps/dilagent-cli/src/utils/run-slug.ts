@@ -11,11 +11,18 @@
  * Generate a run slug for the current date with optional context
  *
  * @param contextSlug - Optional context to append (e.g., "auth-bug-fix")
- * @returns Run slug in format YYYY-MM-DD[-context-slug]
+ * @returns Run slug in format YYYY-MM-DD[-context-slug] with sanitized context
  */
 export const generateRunSlug = (contextSlug?: string): string => {
   const date = new Date().toISOString().split('T')[0]! // YYYY-MM-DD
-  return contextSlug ? `${date}-${contextSlug}` : date
+  if (contextSlug) {
+    const sanitizedContext = contextSlug
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') // Remove leading/trailing dashes
+    return sanitizedContext ? `${date}-${sanitizedContext}` : date
+  }
+  return date
 }
 
 /**

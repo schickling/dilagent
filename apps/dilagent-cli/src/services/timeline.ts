@@ -281,6 +281,81 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
       }
     })
 
+    /**
+     * Generate a summary report of the timeline for documentation
+     *
+     * @returns Markdown-formatted summary of timeline events and statistics
+     */
+    const generateTimelineSummary = Effect.fn('TimelineService.generateTimelineSummary')(function* () {
+      const timeline = yield* getTimeline()
+      const stats = yield* getStatistics()
+
+      if (timeline.events.length === 0) {
+        return '# Timeline Summary\n\nNo timeline events recorded.'
+      }
+
+      const lines = ['# Timeline Summary', '']
+
+      // Overall statistics
+      lines.push('## Statistics')
+      lines.push(`- **Total Events**: ${stats.totalEvents}`)
+      if (stats.firstEvent && stats.lastEvent) {
+        const start = new Date(stats.firstEvent)
+        const end = new Date(stats.lastEvent)
+        const duration = end.getTime() - start.getTime()
+        lines.push(`- **Duration**: ${Math.round(duration / 1000)}s (${start.toISOString()} → ${end.toISOString()})`)
+      }
+      lines.push('')
+
+      // Events by phase
+      if (Object.keys(stats.eventsByPhase).length > 0) {
+        lines.push('## Events by Phase')
+        for (const [phase, count] of Object.entries(stats.eventsByPhase)) {
+          lines.push(`- **${phase}**: ${count} events`)
+        }
+        lines.push('')
+      }
+
+      // Events by hypothesis
+      if (Object.keys(stats.eventsByHypothesis).length > 0) {
+        lines.push('## Events by Hypothesis')
+        for (const [hypothesisId, count] of Object.entries(stats.eventsByHypothesis)) {
+          lines.push(`- **${hypothesisId}**: ${count} events`)
+        }
+        lines.push('')
+      }
+
+      // Timeline events
+      lines.push('## Timeline Events')
+      for (const event of timeline.events) {
+        const time = new Date(event.timestamp).toISOString().replace('T', ' ').replace('Z', '')
+        let eventLine = `- **${time}** - ${event.event}`
+
+        if (event.phase) {
+          eventLine += ` (${event.phase})`
+        }
+
+        if (event.hypothesisId) {
+          eventLine += ` [${event.hypothesisId}]`
+        }
+
+        lines.push(eventLine)
+
+        // Add metadata if present
+        if (event.metadata && Object.keys(event.metadata).length > 0) {
+          const metadataEntries = Object.entries(event.metadata).map(([key, value]) => {
+            if (key === 'executionTimeMs') {
+              return `${key}: ${value}ms`
+            }
+            return `${key}: ${JSON.stringify(value)}`
+          })
+          lines.push(`  - ${metadataEntries.join(', ')}`)
+        }
+      }
+
+      return lines.join('\n')
+    })
+
     return {
       initializeTimeline,
       enableAutoPersist,
@@ -291,6 +366,7 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
       persistToFile,
       loadFromFile,
       getStatistics,
+      generateTimelineSummary,
     } as const
   }),
 

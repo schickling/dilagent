@@ -181,12 +181,30 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
         >
       >,
     ) {
-      yield* updateDilagentState((state) => ({
-        ...state,
-        hypotheses: state.hypotheses.map((h) => (h.id === hypothesisId ? { ...h, ...updates } : h)),
-      }))
+      yield* updateDilagentState((state) => {
+        // Update the specific hypothesis
+        const updatedHypotheses = state.hypotheses.map((h) => (h.id === hypothesisId ? { ...h, ...updates } : h))
+        
+        // Recalculate overall progress
+        const totalHypotheses = updatedHypotheses.length
+        const completed = updatedHypotheses.filter(h => h.status === 'completed').length
+        const failed = updatedHypotheses.filter(h => h.status === 'failed').length
+        const remaining = totalHypotheses - completed - failed
+        
+        return {
+          ...state,
+          hypotheses: updatedHypotheses,
+          overallProgress: {
+            totalHypotheses,
+            completed,
+            failed, 
+            remaining,
+          },
+          lastUpdated: new Date().toISOString(),
+        }
+      })
 
-      yield* Effect.log(`Updated hypothesis ${hypothesisId}`)
+      yield* Effect.log(`Updated hypothesis ${hypothesisId} - Progress: ${updates.status || 'status unchanged'}`)
     })
 
     return {

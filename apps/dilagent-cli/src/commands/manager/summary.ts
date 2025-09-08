@@ -145,6 +145,6 @@ ${
         )
 
         return summaryContent
-      }).pipe(Effect.provide(Layer.mergeAll(StateStore.Default, TimelineService.Default, WorkingDirService.Default)))
+      })
     }),
 )
