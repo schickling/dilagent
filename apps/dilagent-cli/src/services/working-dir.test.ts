@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as Path from 'node:path'
 import { FileSystem } from '@effect/platform'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
-import { Effect, Layer } from 'effect'
+import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DilagentConfig, DilagentState, Timeline } from '../schemas/file-management.ts'
 import { WorkingDirService } from './working-dir.ts'
@@ -12,9 +12,11 @@ describe('WorkingDirService', () => {
   let testDir: string
 
   // Create test layer with all dependencies
-  const TestLayer = WorkingDirService.Default.pipe(
-    Layer.provideMerge(Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)),
-  )
+
+  // let runtime: ManagedRuntime.ManagedRuntime<WorkingDirService | FileSystem.FileSystem, never>
+
+  const TestLayer = (testDir: string) =>
+    WorkingDirService.Default(testDir).pipe(Layer.provideMerge(Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)))
 
   beforeEach(async () => {
     // Create unique test directory for each test
@@ -24,6 +26,8 @@ describe('WorkingDirService', () => {
         else resolve(dir)
       })
     })
+
+    // runtime = ManagedRuntime.make(TestLayer().pipe(Layer.orDie))
   })
 
   afterEach(async () => {
@@ -37,11 +41,10 @@ describe('WorkingDirService', () => {
     it('should create complete .dilagent directory structure', async () => {
       const program = Effect.gen(function* () {
         const service = yield* WorkingDirService
-        yield* service.initializeDilagentStructure(testDir)
 
         // Verify all directories were created
         const fs = yield* FileSystem.FileSystem
-        const paths = service.getPaths(testDir)
+        const paths = service.paths
 
         const dilagentExists = yield* fs.exists(paths.dilagent)
         const logsExists = yield* fs.exists(paths.logs)
@@ -54,23 +57,7 @@ describe('WorkingDirService', () => {
         expect(contextRepoExists).toBe(true)
       })
 
-      await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-    })
-
-    it('should be idempotent - not fail if directories already exist', async () => {
-      const program = Effect.gen(function* () {
-        const service = yield* WorkingDirService
-
-        // Initialize twice
-        yield* service.initializeDilagentStructure(testDir)
-        yield* service.initializeDilagentStructure(testDir)
-
-        // Should succeed both times
-        const isValid = yield* service.validateDilagentStructure(testDir)
-        expect(isValid).toBe(true)
-      })
-
-      await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
+      await Effect.runPromise(program.pipe(Effect.provide(TestLayer(testDir))))
     })
 
     it('should handle nested working directories', async () => {
@@ -78,16 +65,16 @@ describe('WorkingDirService', () => {
 
       const program = Effect.gen(function* () {
         const service = yield* WorkingDirService
-        yield* service.initializeDilagentStructure(nestedDir)
+        // yield* service.initializeDilagentStructure(nestedDir)
 
-        const paths = service.getPaths(nestedDir)
+        const paths = service.paths
         const fs = yield* FileSystem.FileSystem
 
         const exists = yield* fs.exists(paths.dilagent)
         expect(exists).toBe(true)
       })
 
-      await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
+      await Effect.runPromise(program.pipe(Effect.provide(TestLayer(nestedDir))))
     })
   })
 
@@ -104,7 +91,7 @@ describe('WorkingDirService', () => {
         expect(exists).toBe(true)
       })
 
-      await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
+      await Effect.runPromise(program.pipe(Effect.provide(TestLayer(newDir))))
     })
 
     it('should succeed if directory already exists', async () => {
@@ -120,7 +107,7 @@ describe('WorkingDirService', () => {
         expect(true).toBe(true)
       })
 
-      await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
+      await Effect.runPromise(program.pipe(Effect.provide(TestLayer(existingDir))))
     })
 
     it('should fail if path exists but is not a directory', async () => {

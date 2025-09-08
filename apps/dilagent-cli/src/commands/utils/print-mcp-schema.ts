@@ -1,9 +1,12 @@
+import * as os from 'node:os'
 import * as Cli from '@effect/cli'
 import { HttpClient, HttpClientRequest } from '@effect/platform'
 import { NodeContext } from '@effect/platform-node'
 import { Effect, Layer } from 'effect'
 import { getFreePort } from '../../services/free-port.ts'
 import { createMcpServerLayer } from '../../services/mcp-server.js'
+import { StateStore } from '../../services/state-store.ts'
+import { WorkingDirService } from '../../services/working-dir.ts'
 
 export const printMcpSchemaCommand = Cli.Command.make('print-mcp-schema', {}, () =>
   Effect.flatMap(getFreePort, (port) =>
@@ -56,7 +59,15 @@ export const printMcpSchemaCommand = Cli.Command.make('print-mcp-schema', {}, ()
       }
     }).pipe(
       Effect.withSpan('print-mcp-schema'),
-      Effect.provide(Layer.mergeAll(createMcpServerLayer(port), NodeContext.layer)),
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.provide(
+            createMcpServerLayer(port),
+            Layer.provide(StateStore.Default, WorkingDirService.Default(os.tmpdir())),
+          ),
+          NodeContext.layer,
+        ),
+      ),
       Effect.scoped,
     ),
   ),

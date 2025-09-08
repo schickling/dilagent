@@ -23,54 +23,86 @@ export class StateStoreFlushError extends Schema.TaggedError<StateStoreFlushErro
   statePath: Schema.String,
 }) {}
 
+const now = new Date().toISOString()
+const createDefaultState = (): DilagentState => ({
+  runId: '2025-09-07-test',
+  runSlug: '2025-09-07-test',
+  contextDir: '/test/context',
+  contextType: 'directory',
+  createdAt: now,
+  lastUpdated: now,
+  currentPhase: 'reproduction',
+  phaseStartedAt: now,
+  reproduction: {
+    status: 'pending',
+    attempts: 0,
+    confidence: 0.0,
+  },
+  hypotheses: [],
+  parallelExecution: {
+    enabled: false,
+    maxConcurrent: 1,
+    currentlyRunning: [],
+  },
+  overallProgress: {
+    totalHypotheses: 0,
+    completed: 0,
+    failed: 0,
+    remaining: 0,
+  },
+})
+
 export class StateStore extends Effect.Service<StateStore>()('StateStore', {
   effect: Effect.gen(function* () {
     const workingDirService = yield* WorkingDirService
 
     // DilagentState store with auto-flush
-    const dilagentStateStore = yield* Ref.make<DilagentState | undefined>(undefined)
+    // const workingDirPath = yield* Ref.make<string | undefined>(undefined)
+
+    // /**
+    //  * Initialize DilagentState from file or create new state
+    //  *
+    //  * @param workingDir - Working directory containing .dilagent
+    //  * @param initialState - Initial state if file doesn't exist
+    //  * @returns Effect that succeeds when state is initialized
+    //  */
+    // const initializeDilagentState = Effect.fn('StateStore.initializeDilagentState')(function* (
+    //   workingDir: string,
+    //   initialState?: DilagentState,
+    // ) {
+    // yield* Effect.annotateCurrentSpan({ workingDir })
+
+    // Store working directory for auto-flush
+    // yield* Ref.set(workingDirPath, workingDir)
+
+    // Try to load existing state
+    const existingState = yield* workingDirService.readState().pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          // If file doesn't exist, that's okay - we'll use initial state
+          yield* Effect.log(`No existing state found, using initial state: ${error.message}`)
+          return undefined
+        }),
+      ),
+    )
+
+    const statePath = workingDirService.paths.stateFile
+
+    const stateToUse = existingState ?? createDefaultState()
+    if (!stateToUse) {
+      return yield* new StateStoreInitializationError({
+        cause: new Error('No existing state and no initial state provided'),
+        message: `Failed to initialize state: no existing state found and no initial state provided`,
+        statePath: statePath,
+      })
+    }
+
+    const dilagentStateStore = yield* Ref.make<DilagentState>(stateToUse)
     const autoFlushEnabled = yield* Ref.make<boolean>(false)
-    const workingDirPath = yield* Ref.make<string | undefined>(undefined)
 
-    /**
-     * Initialize DilagentState from file or create new state
-     *
-     * @param workingDir - Working directory containing .dilagent
-     * @param initialState - Initial state if file doesn't exist
-     * @returns Effect that succeeds when state is initialized
-     */
-    const initializeDilagentState = Effect.fn('StateStore.initializeDilagentState')(function* (
-      workingDir: string,
-      initialState?: DilagentState,
-    ) {
-      yield* Effect.annotateCurrentSpan({ workingDir })
-
-      // Store working directory for auto-flush
-      yield* Ref.set(workingDirPath, workingDir)
-
-      // Try to load existing state
-      const existingState = yield* workingDirService.readState(workingDir).pipe(
-        Effect.catchAll((error) =>
-          Effect.gen(function* () {
-            // If file doesn't exist, that's okay - we'll use initial state
-            yield* Effect.log(`No existing state found, using initial state: ${error.message}`)
-            return undefined
-          }),
-        ),
-      )
-
-      const stateToUse = existingState ?? initialState
-      if (!stateToUse) {
-        return yield* new StateStoreInitializationError({
-          cause: new Error('No existing state and no initial state provided'),
-          message: `Failed to initialize state: no existing state found and no initial state provided`,
-          statePath: workingDir,
-        })
-      }
-
-      yield* Ref.set(dilagentStateStore, stateToUse)
-      yield* Effect.log(`Initialized DilagentState from ${existingState ? 'file' : 'initial state'}`)
-    })
+    yield* Ref.set(dilagentStateStore, stateToUse)
+    yield* Effect.log(`Initialized DilagentState from ${existingState ? 'file' : 'initial state'}`)
+    // })
 
     /**
      * Enable auto-flush - state will be written to file on every update
@@ -141,28 +173,19 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
      */
     const flushToFile = Effect.fn('StateStore.flushToFile')(function* () {
       const state = yield* getDilagentState()
-      const workingDir = yield* Ref.get(workingDirPath)
 
-      if (!workingDir) {
-        return yield* new StateStoreFlushError({
-          cause: new Error('Working directory not set'),
-          message: 'Cannot flush state: working directory not initialized',
-          statePath: 'unknown',
-        })
-      }
-
-      yield* workingDirService.writeState(workingDir, state).pipe(
+      yield* workingDirService.writeState(state).pipe(
         Effect.catchAll(
           (error) =>
             new StateStoreFlushError({
               cause: error,
               message: `Failed to flush DilagentState to file`,
-              statePath: workingDir,
+              statePath: workingDirService.paths.stateFile,
             }),
         ),
       )
 
-      yield* Effect.log(`Flushed DilagentState to ${workingDir}/.dilagent/state.json`)
+      yield* Effect.log(`Flushed DilagentState to ${workingDirService.paths.stateFile}`)
     })
 
     /**
@@ -184,20 +207,20 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
       yield* updateDilagentState((state) => {
         // Update the specific hypothesis
         const updatedHypotheses = state.hypotheses.map((h) => (h.id === hypothesisId ? { ...h, ...updates } : h))
-        
+
         // Recalculate overall progress
         const totalHypotheses = updatedHypotheses.length
-        const completed = updatedHypotheses.filter(h => h.status === 'completed').length
-        const failed = updatedHypotheses.filter(h => h.status === 'failed').length
+        const completed = updatedHypotheses.filter((h) => h.status === 'completed').length
+        const failed = updatedHypotheses.filter((h) => h.status === 'failed').length
         const remaining = totalHypotheses - completed - failed
-        
+
         return {
           ...state,
           hypotheses: updatedHypotheses,
           overallProgress: {
             totalHypotheses,
             completed,
-            failed, 
+            failed,
             remaining,
           },
           lastUpdated: new Date().toISOString(),
@@ -208,7 +231,7 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
     })
 
     return {
-      initializeDilagentState,
+      // initializeDilagentState,
       enableAutoFlush,
       disableAutoFlush,
       getDilagentState,
@@ -218,5 +241,5 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
     } as const
   }),
 
-  dependencies: [WorkingDirService.Default],
+  dependencies: [],
 }) {}

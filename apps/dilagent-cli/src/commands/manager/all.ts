@@ -1,8 +1,10 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
-import { Effect, Option } from 'effect'
+import { Effect, Layer, Option } from 'effect'
+import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
+import { generateRunSlug } from '../../utils/run-slug.ts'
 import { generateHypothesesCommand } from './generate-hypotheses.ts'
 import { reproCommand } from './repro.ts'
 import { runHypothesisWorkersCommand } from './run-hypotheses.ts'
@@ -31,11 +33,13 @@ export const allCommand = Cli.Command.make(
     cwd: cwdOption,
     flaky: flakyOption,
   },
-  (options) =>
-    Effect.gen(function* () {
+  (options) => {
+    const resolvedCwd = Option.getOrElse(options.cwd, () => process.cwd())
+    const resolvedWorkingDirectory = path.resolve(resolvedCwd, options.workingDirectory)
+    const runId = generateRunSlug('all')
+
+    return Effect.gen(function* () {
       const timelineService = yield* TimelineService
-      const resolvedCwd = Option.getOrElse(options.cwd, () => process.cwd())
-      const resolvedWorkingDirectory = path.resolve(resolvedCwd, options.workingDirectory)
 
       const workflowStartTime = Date.now()
 
@@ -49,7 +53,7 @@ export const allCommand = Cli.Command.make(
             llm: options.llm,
             count: options.count?._tag === 'Some' ? options.count.value : undefined,
             flaky: options.flaky?._tag === 'Some' ? options.flaky.value : false,
-          }
+          },
         },
       })
 
@@ -120,7 +124,7 @@ export const allCommand = Cli.Command.make(
 
       const testingEndTime = Date.now()
       const workflowEndTime = Date.now()
-      
+
       yield* timelineService.recordEvent({
         event: 'Phase 3: Hypothesis testing completed',
         phase: 'hypothesis-testing',
@@ -143,7 +147,7 @@ export const allCommand = Cli.Command.make(
 
       // Log comprehensive summary with timeline statistics
       const stats = yield* timelineService.getStatistics()
-      
+
       yield* Effect.log('🎯 Complete workflow finished!')
       yield* Effect.log(`📊 Workflow Statistics:`)
       yield* Effect.log(`   • Total time: ${workflowEndTime - workflowStartTime}ms`)
@@ -151,5 +155,12 @@ export const allCommand = Cli.Command.make(
       yield* Effect.log(`   • Hypothesis generation: ${hypothesisGenEndTime - hypothesisGenStartTime}ms`)
       yield* Effect.log(`   • Hypothesis testing: ${testingEndTime - testingStartTime}ms`)
       yield* Effect.log(`   • Total events recorded: ${stats.totalEvents}`)
-    }),
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(TimelineService.Default(runId), StateStore.Default).pipe(
+          Layer.provideMerge(WorkingDirService.Default(resolvedWorkingDirectory)),
+        ),
+      ),
+    )
+  },
 )

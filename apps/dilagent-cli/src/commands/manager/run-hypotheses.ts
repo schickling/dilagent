@@ -5,9 +5,12 @@ import { runRepl } from '../../repl.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
 import { getFreePort } from '../../services/free-port.ts'
+import { GitManagerService } from '../../services/git-manager.ts'
 import { createMcpServerLayer } from '../../services/mcp-server.ts'
+import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
+import { generateRunSlug } from '../../utils/run-slug.ts'
 import {
   cwdOption,
   llmOption,
@@ -30,15 +33,17 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
   ({ workingDirectory, port: portOption, llm, repl: replOption, cwd: cwdOption }) =>
     Effect.gen(function* () {
       const fallbackPort = yield* getFreePort
+
       const port = Option.getOrElse(portOption, () => fallbackPort)
+      const cwd = Option.getOrElse(cwdOption, () => process.cwd())
+      const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
+      const runId = generateRunSlug('hypothesis-testing')
 
       return yield* Effect.gen(function* () {
-        const cwd = Option.getOrElse(cwdOption, () => process.cwd())
-        const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
         const workingDirService = yield* WorkingDirService
         const timelineService = yield* TimelineService
 
-        const paths = workingDirService.getPaths(resolvedWorkingDirectory)
+        const paths = workingDirService.paths
         const resolvedContextDirectory = paths.contextRepo
 
         yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
@@ -52,7 +57,7 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
         })
 
         // Load hypotheses from canonical location
-        const hypotheses = yield* loadExperiments(resolvedWorkingDirectory)
+        const hypotheses = yield* loadExperiments()
 
         yield* Effect.log(
           `Running ${hypotheses.length} hypotheses:\n${hypotheses.map((e) => `- ${e.hypothesisId}: ${e.problemTitle}`).join('\n')}`,
@@ -80,7 +85,17 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
 
         yield* fiber
       }).pipe(
-        Effect.provide(Layer.mergeAll(createMcpServerLayer(port), llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
+        Effect.provide(
+          Layer.provideMerge(
+            createMcpServerLayer(port),
+            Layer.mergeAll(
+              llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
+              Layer.mergeAll(GitManagerService.Default, TimelineService.Default(runId), StateStore.Default).pipe(
+                Layer.provideMerge(WorkingDirService.Default(resolvedWorkingDirectory)),
+              ),
+            ),
+          ),
+        ),
       )
     }),
 )

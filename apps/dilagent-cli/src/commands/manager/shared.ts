@@ -2,7 +2,6 @@ import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { FileSystem } from '@effect/platform'
 import { Effect, Option, Schema } from 'effect'
-import { generateRunSlug } from '../../utils/run-slug.ts'
 import { instructionsMd, makeContextMd } from '../../prompts/hypothesis-worker.ts'
 import {
   generateHypothesesFromReproductionPrompt,
@@ -14,12 +13,13 @@ import {
   type HypothesisInput,
   HypothesisInput as HypothesisInputSchema,
 } from '../../schemas/hypothesis.ts'
-import { ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
+import { ReproductionResult } from '../../schemas/reproduction.ts'
 import { GitManagerService } from '../../services/git-manager.ts'
 import { LLMService } from '../../services/llm.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
+import { generateRunSlug } from '../../utils/run-slug.ts'
 import { hypothesisCommand } from '../hypothesis.ts'
 
 // Constants for canonical file structure
@@ -97,13 +97,10 @@ export const generateHypotheses = ({
     const gitManager = yield* GitManagerService
     const stateStore = yield* StateStore
 
-    // Initialize working directory structure if not exists
-    yield* workingDirService.initializeDilagentStructure(resolvedWorkingDirectory)
-
     // Setup context directory as git repository
     const runId = generateRunSlug('hypothesis-generation')
-    yield* gitManager.setupContextRepo(resolvedContextDirectory, resolvedWorkingDirectory, runId)
-    const contextDir = workingDirService.getPaths(resolvedWorkingDirectory).contextRepo
+    yield* gitManager.setupContextRepo(resolvedContextDirectory, runId)
+    const contextDir = workingDirService.paths.contextRepo
 
     // Record timeline event
     yield* timelineService.recordEvent({
@@ -112,7 +109,7 @@ export const generateHypotheses = ({
     })
 
     // Check for existing reproduction results
-    const artifactsDir = workingDirService.getPaths(resolvedWorkingDirectory).artifacts
+    const artifactsDir = workingDirService.paths.artifacts
     const reproduction = yield* fs.readFileString(path.join(artifactsDir, 'reproduction.json')).pipe(
       Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResult, { space: 2 }))),
       Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
@@ -158,7 +155,7 @@ export const generateHypotheses = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(workingDirService.getPaths(resolvedWorkingDirectory).logs, 'generate-hypotheses.log'),
+        debugLogPath: path.join(workingDirService.paths.logs, 'generate-hypotheses.log'),
       })
       .pipe(
         Effect.timeout('15 minutes'),
@@ -309,7 +306,7 @@ export const runHypothesisWorker = ({
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           const executionTimeMs = Date.now() - startTime
-          
+
           // Mark as failed/inconclusive if there's an error
           yield* stateStore.updateHypothesis(hypothesis.hypothesisId, {
             status: 'completed',
@@ -320,17 +317,17 @@ export const runHypothesisWorker = ({
 
           yield* Effect.log(`❌ Failed hypothesis ${hypothesis.hypothesisId} after ${executionTimeMs}ms: ${error}`)
           return yield* Effect.fail(error)
-        })
-      )
+        }),
+      ),
     )
   }).pipe(Effect.withSpan('runHypothesisWorker'))
 
-export const loadExperiments = (resolvedWorkingDirectory: string) =>
+export const loadExperiments = () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const workingDirService = yield* WorkingDirService
 
-    const hypothesesFile = path.join(workingDirService.getPaths(resolvedWorkingDirectory).artifacts, 'hypotheses.json')
+    const hypothesesFile = path.join(workingDirService.paths.artifacts, 'hypotheses.json')
 
     const hypothesesJson = yield* fs.readFileString(hypothesesFile)
     const hypotheses = yield* Schema.decode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypothesesJson)
@@ -339,22 +336,3 @@ export const loadExperiments = (resolvedWorkingDirectory: string) =>
 
     return hypotheses
   }).pipe(Effect.withSpan('loadExperiments'))
-
-
-export const loadReproduction = (resolvedWorkingDirectory: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const workingDirService = yield* WorkingDirService
-
-    const reproductionFile = path.join(
-      workingDirService.getPaths(resolvedWorkingDirectory).artifacts,
-      'reproduction.json',
-    )
-
-    const reproductionJson = yield* fs.readFileString(reproductionFile)
-    const reproduction = yield* Schema.decode(Schema.parseJson(ReproductionResultFile))(reproductionJson)
-
-    yield* Effect.log(`Loaded reproduction result from ${reproductionFile}`)
-
-    return reproduction
-  }).pipe(Effect.withSpan('loadReproduction'))

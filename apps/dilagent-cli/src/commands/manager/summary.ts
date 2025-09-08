@@ -5,6 +5,7 @@ import { Effect, Layer } from 'effect'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
+import { generateRunSlug } from '../../utils/run-slug.ts'
 import { workingDirectoryOption } from './shared.ts'
 
 export const summaryCommand = Cli.Command.make(
@@ -12,38 +13,35 @@ export const summaryCommand = Cli.Command.make(
   {
     workingDirectory: workingDirectoryOption,
   },
-  ({ workingDirectory }) =>
-    Effect.gen(function* () {
-      const resolvedWorkingDirectory = path.resolve(process.cwd(), workingDirectory)
+  ({ workingDirectory }) => {
+    const runId = generateRunSlug('summary')
+    const resolvedWorkingDirectory = path.resolve(process.cwd(), workingDirectory)
 
-      return yield* Effect.gen(function* () {
-        const stateStore = yield* StateStore
-        const timelineService = yield* TimelineService
-        const workingDirService = yield* WorkingDirService
-        const fs = yield* FileSystem.FileSystem
+    return Effect.gen(function* () {
+      const stateStore = yield* StateStore
+      const timelineService = yield* TimelineService
+      const workingDirService = yield* WorkingDirService
+      const fs = yield* FileSystem.FileSystem
 
-        yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
+      // Load state and timeline
+      const state = yield* stateStore.getDilagentState()
+      const timelineStats = yield* timelineService.getStatistics()
 
-        // Load state and timeline
-        const state = yield* stateStore.getDilagentState()
-        const timeline = yield* timelineService.getTimeline()
-        const timelineStats = yield* timelineService.getStatistics()
+      // Calculate execution metrics
+      const totalHypotheses = state.hypotheses.length
+      const completedHypotheses = state.hypotheses.filter((h) => h.status === 'completed').length
+      const provenHypotheses = state.hypotheses.filter((h) => h.result === 'proven').length
+      const disprovenHypotheses = state.hypotheses.filter((h) => h.result === 'disproven').length
+      const inconclusiveHypotheses = state.hypotheses.filter((h) => h.result === 'inconclusive').length
 
-        // Calculate execution metrics
-        const totalHypotheses = state.hypotheses.length
-        const completedHypotheses = state.hypotheses.filter((h) => h.status === 'completed').length
-        const provenHypotheses = state.hypotheses.filter((h) => h.result === 'proven').length
-        const disprovenHypotheses = state.hypotheses.filter((h) => h.result === 'disproven').length
-        const inconclusiveHypotheses = state.hypotheses.filter((h) => h.result === 'inconclusive').length
+      const totalExecutionTime = state.hypotheses.reduce((acc, h) => acc + (h.executionTimeMs ?? 0), 0)
 
-        const totalExecutionTime = state.hypotheses.reduce((acc, h) => acc + (h.executionTimeMs ?? 0), 0)
+      const startTime = new Date(state.createdAt).getTime()
+      const endTime = Date.now() // DilagentState doesn't have completedAt field
+      const wallClockTime = endTime - startTime
 
-        const startTime = new Date(state.createdAt).getTime()
-        const endTime = Date.now() // DilagentState doesn't have completedAt field
-        const wallClockTime = endTime - startTime
-
-        // Generate summary content
-        const summaryContent = `# Debugging Session Summary
+      // Generate summary content
+      const summaryContent = `# Debugging Session Summary
 
 ## Overview
 - **Run ID**: ${state.runId}
@@ -131,20 +129,26 @@ ${
 *Generated on ${new Date().toLocaleString()}*
 `
 
-        // Save summary to artifacts
-        const artifactsDir = workingDirService.getPaths(resolvedWorkingDirectory).artifacts
-        const summaryFile = path.join(artifactsDir, 'summary.md')
+      // Save summary to artifacts
+      const artifactsDir = workingDirService.paths.artifacts
+      const summaryFile = path.join(artifactsDir, 'summary.md')
 
-        yield* fs
-          .writeFileString(summaryFile, summaryContent)
-          .pipe(Effect.catchAll((error) => Effect.die(`Failed to write summary: ${error}`)))
+      yield* fs
+        .writeFileString(summaryFile, summaryContent)
+        .pipe(Effect.catchAll((error) => Effect.die(`Failed to write summary: ${error}`)))
 
-        yield* Effect.log(`📄 Generated debugging session summary: ${summaryFile}`)
-        yield* Effect.log(
-          `📊 Session Stats: ${completedHypotheses}/${totalHypotheses} hypotheses completed, ${provenHypotheses} proven`,
-        )
+      yield* Effect.log(`📄 Generated debugging session summary: ${summaryFile}`)
+      yield* Effect.log(
+        `📊 Session Stats: ${completedHypotheses}/${totalHypotheses} hypotheses completed, ${provenHypotheses} proven`,
+      )
 
-        return summaryContent
-      })
-    }),
+      return summaryContent
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(TimelineService.Default(runId), StateStore.Default).pipe(
+          Layer.provideMerge(WorkingDirService.Default(resolvedWorkingDirectory)),
+        ),
+      ),
+    )
+  },
 )

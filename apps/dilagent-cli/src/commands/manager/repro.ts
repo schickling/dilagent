@@ -1,7 +1,7 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { FileSystem } from '@effect/platform'
-import { Effect, Option, Schema } from 'effect'
+import { Effect, Layer, Option, Schema } from 'effect'
 import {
   initialReproductionPrompt,
   refineReproductionPrompt,
@@ -35,12 +35,14 @@ export const reproCommand = Cli.Command.make(
     flaky: flakyOption,
     cwd: cwdOption,
   },
-  ({ workingDirectory, contextDirectory, llm, prompt, flaky, cwd }) =>
-    Effect.gen(function* () {
-      const resolvedCwd = Option.getOrElse(cwd, () => process.cwd())
-      const resolvedWorkingDirectory = path.resolve(resolvedCwd, workingDirectory)
-      const resolvedContextDirectory = path.resolve(resolvedCwd, contextDirectory)
+  ({ workingDirectory, contextDirectory, llm, prompt, flaky, cwd }) => {
+    const resolvedCwd = Option.getOrElse(cwd, () => process.cwd())
+    const resolvedContextDirectory = path.resolve(resolvedCwd, contextDirectory)
+    const resolvedWorkingDirectory = path.resolve(resolvedCwd, workingDirectory)
 
+    const runId = generateRunSlug('reproduction')
+
+    return Effect.gen(function* () {
       // Get problem prompt if not provided
       const problemPrompt = yield* Option.match(prompt, {
         onNone: () =>
@@ -58,8 +60,8 @@ export const reproCommand = Cli.Command.make(
       let result = yield* reproduceIssue({
         problemPrompt,
         resolvedContextDirectory,
-        resolvedWorkingDirectory,
         isFlaky,
+        runId,
       })
 
       // Handle iterative feedback loop
@@ -86,8 +88,8 @@ export const reproCommand = Cli.Command.make(
         result = yield* reproduceIssue({
           problemPrompt,
           resolvedContextDirectory,
-          resolvedWorkingDirectory,
           isFlaky,
+          runId,
           userFeedback: answers,
         })
       }
@@ -124,20 +126,30 @@ export const reproCommand = Cli.Command.make(
       }
 
       return result
-    }).pipe(Effect.provide(llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
+          Layer.mergeAll(GitManagerService.Default, TimelineService.Default(runId), StateStore.Default).pipe(
+            Layer.provideMerge(WorkingDirService.Default(resolvedWorkingDirectory)),
+          ),
+        ),
+      ),
+    )
+  },
 ).pipe(Cli.Command.withDescription('Reproduce an issue to understand its behavior and generate diagnostic information'))
 
 const reproduceIssue = ({
   problemPrompt,
   resolvedContextDirectory,
-  resolvedWorkingDirectory,
   isFlaky,
+  runId,
   userFeedback,
 }: {
   problemPrompt: string
   resolvedContextDirectory: string
-  resolvedWorkingDirectory: string
   isFlaky: boolean
+  runId: string
   userFeedback?: string[]
 }) =>
   Effect.gen(function* () {
@@ -148,16 +160,11 @@ const reproduceIssue = ({
     const timelineService = yield* TimelineService
     const gitManager = yield* GitManagerService
 
-    // Initialize working directory structure
-    yield* workingDirService.initializeDilagentStructure(resolvedWorkingDirectory)
-
     // Generate run ID and setup context directory as git repository
-    const runId = generateRunSlug('reproduction')
-    yield* gitManager.setupContextRepo(resolvedContextDirectory, resolvedWorkingDirectory, runId)
-    const contextDir = workingDirService.getPaths(resolvedWorkingDirectory).contextRepo
+    yield* gitManager.setupContextRepo(resolvedContextDirectory, runId)
+    const contextDir = workingDirService.paths.contextRepo
 
     // Initialize timeline
-    yield* timelineService.initializeTimeline(resolvedWorkingDirectory, runId)
     yield* timelineService.enableAutoPersist()
     yield* timelineService.recordEvent({
       event: 'Reproduction phase started',
@@ -166,7 +173,7 @@ const reproduceIssue = ({
 
     // Check for existing reproduction results
     const reproductionJson = yield* fs
-      .readFileString(path.join(workingDirService.getPaths(resolvedWorkingDirectory).artifacts, 'reproduction.json'))
+      .readFileString(path.join(workingDirService.paths.artifacts, 'reproduction.json'))
       .pipe(
         Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResultFile))),
         Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
@@ -200,7 +207,7 @@ const reproduceIssue = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(workingDirService.getPaths(resolvedWorkingDirectory).logs, 'reproduction.log'),
+        debugLogPath: path.join(workingDirService.paths.logs, 'reproduction.log'),
       })
       .pipe(
         Effect.timeout('20 minutes'),
@@ -209,7 +216,7 @@ const reproduceIssue = ({
       )
 
     // Save reproduction result as artifact
-    const artifactsDir = workingDirService.getPaths(resolvedWorkingDirectory).artifacts
+    const artifactsDir = workingDirService.paths.artifacts
     const reproductionFile = path.join(artifactsDir, 'reproduction.json')
     const reproductionJsonContent = yield* Schema.encode(Schema.parseJson(ReproductionResultFile))(reproductionResult)
     yield* fs.writeFileString(reproductionFile, reproductionJsonContent)

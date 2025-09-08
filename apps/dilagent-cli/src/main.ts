@@ -7,10 +7,7 @@ import { Effect, Layer, Logger, LogLevel } from 'effect'
 import { hypothesisCommand } from './commands/hypothesis.ts'
 import { managerCommand } from './commands/manager/mod.ts'
 import { utilsCommand } from './commands/utils/mod.ts'
-import { GitManagerService } from './services/git-manager.ts'
 import { StateStore } from './services/state-store.ts'
-import { TimelineService } from './services/timeline.ts'
-import { WorkingDirService } from './services/working-dir.ts'
 
 // Needed for Codex to find the CLI in the MCP proxy
 process.env.DILAGENT_CLI_PATH = process.env.DILAGENT_CLI_PATH ?? process.argv[1]!
@@ -26,16 +23,8 @@ const cli = Cli.Command.run(mainCommand, {
 
 const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
 
-const ServiceLayer = Layer.mergeAll(
-  WorkingDirService.Default,
-  StateStore.Default,
-  TimelineService.Default,
-  GitManagerService.Default,
-).pipe(Layer.provide(PlatformLayer))
-
 const MainLayer = Layer.mergeAll(
   PlatformLayer,
-  ServiceLayer,
   Logger.pretty,
   Logger.minimumLogLevel(LogLevel.Debug),
   FetchHttpClient.layer,

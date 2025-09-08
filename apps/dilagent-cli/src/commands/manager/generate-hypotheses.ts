@@ -1,8 +1,13 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
-import { Effect, Option } from 'effect'
+import { Effect, Layer, Option } from 'effect'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
+import { GitManagerService } from '../../services/git-manager.ts'
+import { StateStore } from '../../services/state-store.ts'
+import { TimelineService } from '../../services/timeline.ts'
+import { WorkingDirService } from '../../services/working-dir.ts'
+import { generateRunSlug } from '../../utils/run-slug.ts'
 import {
   contextDirectoryOption,
   countOption,
@@ -23,10 +28,12 @@ export const generateHypothesesCommand = Cli.Command.make(
     llm: llmOption,
     cwd: cwdOption,
   },
-  ({ contextDirectory, workingDirectory, prompt, count, llm, cwd }) =>
-    Effect.gen(function* () {
-      const resolvedCwd = Option.getOrElse(cwd, () => process.cwd())
-      const resolvedWorkingDirectory = path.resolve(resolvedCwd, workingDirectory)
+  ({ contextDirectory, workingDirectory, prompt, count, llm, cwd }) => {
+    const resolvedCwd = Option.getOrElse(cwd, () => process.cwd())
+    const resolvedWorkingDirectory = path.resolve(resolvedCwd, workingDirectory)
+    const runId = generateRunSlug('hypothesis-generation')
+
+    return Effect.gen(function* () {
       const resolvedContextDirectory = path.resolve(resolvedCwd, contextDirectory)
 
       // Get prompt interactively if not provided
@@ -63,5 +70,15 @@ export const generateHypothesesCommand = Cli.Command.make(
       yield* Effect.log(
         `Experiments saved and ready to run with: dilagent manager run-hypotheses --working-directory ${workingDirectory} --llm ${llm}`,
       )
-    }).pipe(Effect.provide(llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
+          Layer.mergeAll(GitManagerService.Default, TimelineService.Default(runId), StateStore.Default).pipe(
+            Layer.provideMerge(WorkingDirService.Default(resolvedWorkingDirectory)),
+          ),
+        ),
+      ),
+    )
+  },
 )

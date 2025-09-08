@@ -1,7 +1,6 @@
 import * as Cli from '@effect/cli'
 import { allCommand } from './all.ts'
 import { generateHypothesesCommand } from './generate-hypotheses.ts'
-import { replCommand } from './repl.ts'
 import { reproCommand } from './repro.ts'
 import { runHypothesisWorkersCommand } from './run-hypotheses.ts'
 import { summaryCommand } from './summary.ts'
@@ -13,7 +12,6 @@ export const managerCommand = Cli.Command.make('manager', {}).pipe(
     runHypothesisWorkersCommand,
     allCommand,
     summaryCommand,
-    replCommand,
   ]),
   Cli.Command.withDescription('Manage debugging hypotheses'),
 )

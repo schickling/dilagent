@@ -4,6 +4,10 @@
  * These tests verify the REPL functionality including command parsing,
  * auto-completion, and state management integration.
  */
+
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as Path from 'node:path'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -14,10 +18,11 @@ import { WorkingDirService } from './services/working-dir.ts'
 // Create a test completer adapter that works with StateStore
 const createTestCompleter = (store: StateStore) => {
   const completerAdapter: CompleterStore = {
-    keys: () => Effect.gen(function* () {
-      const state = yield* store.getDilagentState()
-      return state.hypotheses.map(h => h.id)
-    })
+    keys: () =>
+      Effect.gen(function* () {
+        const state = yield* store.getDilagentState()
+        return state.hypotheses.map((h) => h.id)
+      }),
   }
   return createCompleter(completerAdapter)
 }
@@ -27,14 +32,20 @@ describe('REPL', () => {
   let store: StateStore
 
   beforeAll(async () => {
+    const testDir = await new Promise<string>((resolve, reject) => {
+      fs.mkdtemp(Path.join(os.tmpdir(), 'repl-test-'), (err, dir) => {
+        if (err) reject(err)
+        else resolve(dir)
+      })
+    })
     // Create StateStore instance for testing using ManagedRuntime with FileSystem dependency
     const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
-    const ServiceLayer = Layer.mergeAll(WorkingDirService.Default, StateStore.Default).pipe(
+    const ServiceLayer = Layer.provide(StateStore.Default, WorkingDirService.Default(testDir)).pipe(
       Layer.provide(PlatformLayer),
     )
     const TestLayer = Layer.mergeAll(PlatformLayer, ServiceLayer)
 
-    runtime = ManagedRuntime.make(TestLayer)
+    runtime = ManagedRuntime.make(TestLayer.pipe(Layer.orDie))
     store = await runtime.runPromise(StateStore)
   })
 

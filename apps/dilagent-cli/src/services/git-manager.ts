@@ -1,6 +1,7 @@
 import * as Path from 'node:path'
 import { Command } from '@effect/platform'
 import { Effect, Schema } from 'effect'
+import { WorkingDirService } from './working-dir.ts'
 
 // Error types for GitManagerService
 export class GitError extends Schema.TaggedError<GitError>()('GitError', {
@@ -32,6 +33,8 @@ export class GitWorktreeError extends Schema.TaggedError<GitWorktreeError>()('Gi
  */
 export class GitManagerService extends Effect.Service<GitManagerService>()('GitManagerService', {
   effect: Effect.gen(function* () {
+    const workingDirService = yield* WorkingDirService
+    const workingDir = workingDirService.paths.dilagent
     /**
      * Check if a directory is a git repository
      *
@@ -99,12 +102,11 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
      */
     const setupContextRepo = Effect.fn('GitManagerService.setupContextRepo')(function* (
       contextDir: string,
-      workingDir: string,
       runSlug: string,
     ) {
       yield* Effect.annotateCurrentSpan({ contextDir, workingDir, runSlug })
 
-      const contextRepoPath = Path.join(workingDir, '.dilagent', 'context-repo')
+      const contextRepoPath = workingDirService.paths.contextRepo
       const isContextGitRepo = yield* isGitRepo(contextDir)
 
       if (isContextGitRepo) {
@@ -258,7 +260,9 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
       yield* Effect.annotateCurrentSpan({ workingDir, runSlug, hypothesisId, hypothesisSlug })
 
       const contextRepoPath = Path.join(workingDir, '.dilagent', 'context-repo')
-      const worktreePath = Path.join(workingDir, `${hypothesisId}-${hypothesisSlug}`)
+      // TODO bring back the hypothesis slug
+      // const worktreePath = Path.join(workingDir, `${hypothesisId}-${hypothesisSlug}`)
+      const worktreePath = Path.join(workingDir, `${hypothesisId}`)
       const branchName = `dilagent/${runSlug}/${hypothesisId}-${hypothesisSlug}`
 
       // Verify context-repo exists and is a git repo
