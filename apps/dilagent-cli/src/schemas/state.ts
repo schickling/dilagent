@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import packageJson from '../../package.json' with { type: 'json' }
+import { dilagentVersion } from '../utils/version.ts'
 import { HypothesisId, hypothesisSlug, timestamp, WorkingDirId } from './common.ts'
 import { HypothesisResult, HypothesisStatusUpdate } from './hypothesis.ts'
 
@@ -30,9 +30,6 @@ export type HypothesisStatus = typeof HypothesisStatus.Type
  * Individual hypothesis state with progress tracking
  */
 export const HypothesisState = Schema.Struct({
-  dilagentVersion: Schema.Literal(packageJson.version).annotations({
-    description: "Version of Dilagent that created this hypothesis. There's currently no cross-version compatibility.",
-  }),
   id: HypothesisId,
   slug: hypothesisSlug,
   description: Schema.String.annotations({
@@ -102,8 +99,14 @@ export type Metrics = typeof Metrics.Type
 /**
  * Complete state of a Dilagent run
  * @fileLocation .dilagent/state.json
+ *
+ * TODO: refactor state to be a tagged union for the various states (setup, running, completed, failed, etc.)
  */
 export const DilagentState = Schema.Struct({
+  dilagentVersion: Schema.Literal(dilagentVersion).annotations({
+    description: "Version of Dilagent that created this hypothesis. There's currently no cross-version compatibility.",
+  }),
+
   // Working directory identifier
   workingDirId: WorkingDirId,
 
@@ -114,7 +117,7 @@ export const DilagentState = Schema.Struct({
 
   // Directories
   contextDirectory: Schema.String.annotations({
-    description: 'Original context directory path',
+    description: 'Original context directory path. Read-only. Must not be modified under any circumstances.',
   }),
   contextRelativePath: Schema.optional(Schema.String).annotations({
     description: 'Relative path from git root to context directory (e.g., "apps/backend", "." for git root)',

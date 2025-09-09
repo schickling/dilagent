@@ -84,7 +84,7 @@ export const setupCommand = Cli.Command.make(
         },
       }))
 
-      // Record successful setup completion
+      // Record successful setup completion and transition to reproduction phase
       yield* timelineService.recordEvent(
         createPhaseEvent({
           event: 'phase.completed',
@@ -95,6 +95,9 @@ export const setupCommand = Cli.Command.make(
           },
         }),
       )
+      
+      // Transition to reproduction phase
+      yield* stateStore.setPhase('reproduction')
 
       yield* Effect.logDebug('[manager setup] ✅ Dilagent working directory setup complete!')
       yield* Effect.logDebug(`[manager setup]   Working directory: ${resolvedWorkingDirectory}`)

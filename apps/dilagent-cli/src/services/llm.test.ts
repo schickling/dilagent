@@ -11,7 +11,6 @@ import type { CommandExecutor } from '@effect/platform/CommandExecutor'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Chunk, Effect, Layer, ManagedRuntime, Stream } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import packageJson from '../../package.json' with { type: 'json' }
 import { makeTempDir } from '../utils/fs.ts'
 import * as ClaudeProvider from './claude.ts'
 import * as CodexProvider from './codex.ts'
@@ -19,8 +18,6 @@ import { LLMService } from './llm.ts'
 import { createMcpServerLayer } from './mcp-server.ts'
 import { StateStore } from './state-store.ts'
 import { WorkingDirService } from './working-dir.ts'
-
-const dilagentVersion = packageJson.version
 
 const providerLayers = [
   { name: 'Claude', layer: ClaudeProvider.ClaudeLLMLive },
@@ -226,7 +223,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
             ...currentState,
             hypotheses: {
               H001: {
-                dilagentVersion,
                 id: 'H001',
                 description: 'Test hypothesis for MCP tools',
                 slug: 'test-hypothesis',
@@ -270,7 +266,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
             ...currentState,
             hypotheses: {
               H002: {
-                dilagentVersion,
                 id: 'H002',
                 description: 'Result hypothesis for MCP tools',
                 slug: 'result-hypothesis',
@@ -315,7 +310,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
             ...currentState,
             hypotheses: {
               H003: {
-                dilagentVersion,
                 id: 'H003',
                 description: 'First hypothesis for status all test',
                 slug: 'first-hypothesis',
@@ -325,7 +319,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
                 status: 'running',
               },
               H004: {
-                dilagentVersion,
                 id: 'H004',
                 description: 'Second hypothesis for status all test',
                 slug: 'second-hypothesis',
@@ -369,7 +362,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
             ...currentState,
             hypotheses: {
               H005: {
-                dilagentVersion,
                 id: 'H005',
                 description: 'Clear test hypothesis',
                 slug: 'clear-test-hypothesis',
@@ -379,7 +371,6 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
                 status: 'running',
               },
               H006: {
-                dilagentVersion,
                 id: 'H006',
                 description: 'Another clear hypothesis',
                 slug: 'another-clear-hypothesis',

@@ -190,33 +190,32 @@ const prompt = (
 const promptStream = (
   input: string,
   options: LLMOptions = {},
-): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor> =>
-  Stream.fromEffect(
-    Effect.gen(function* () {
-      // Map LLM options to Codex-specific options
-      const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
+): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor | FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    // Map LLM options to Codex-specific options
+    const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
-      return yield* buildCommand(input, {
-        ...options,
-        sandboxMode,
-        jsonOutput: false, // Non-JSON for streaming
-      })
-    }),
-  ).pipe(
-    Stream.flatMap((command) =>
-      Command.streamLines(command).pipe(
-        Stream.withSpan('codex.executeStream'),
-        Stream.mapError(
-          (cause) =>
-            new LLMError({
-              cause,
-              note: 'Failed to stream from Codex CLI',
-              prompt: input,
-            }),
-        ),
+    const writeToLogFile = yield* getWriteToLogFile(options)
+
+    const command = yield* buildCommand(input, {
+      ...options,
+      sandboxMode,
+      jsonOutput: false, // Non-JSON for streaming
+    })
+
+    return Command.streamLines(command).pipe(
+      Stream.tap(writeToLogFile),
+      Stream.withSpan('codex.executeStream'),
+      Stream.mapError(
+        (cause) =>
+          new LLMError({
+            cause,
+            note: 'Failed to stream from Codex CLI',
+            prompt: input,
+          }),
       ),
-    ),
-  )
+    )
+  }).pipe(Stream.unwrapScoped)
 
 /**
  * Codex implementation of the LLM service

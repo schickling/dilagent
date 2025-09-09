@@ -1,6 +1,6 @@
 {
   "name": "dilagent",
-  "version": "0.0.15",
+  "version": "0.0.17",
   "type": "module",
   "bin": {
     "dilagent": "./dist/dilagent"

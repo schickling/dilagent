@@ -4,6 +4,7 @@ import { FileSystem } from '@effect/platform'
 import { Effect, type ParseResult, Ref, Schema } from 'effect'
 import type { DilagentState, HypothesisId, HypothesisState } from '../schemas/file-management.ts'
 import { DilagentState as DilagentStateSchema } from '../schemas/file-management.ts'
+import { dilagentVersion } from '../utils/version.ts'
 import { WorkingDirService } from './working-dir.ts'
 
 // Error types for StateStore
@@ -34,6 +35,7 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
 
     // Helper to create default state
     const createDefaultState = (): DilagentState => ({
+      dilagentVersion,
       workingDirId: crypto.randomUUID(),
       problemPrompt: '', // Will be set during setup
       contextDirectory: workingDir.workingDir,
@@ -121,6 +123,7 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
         hypotheses: {
           ...s.hypotheses,
           [hypothesisId]: {
+            dilagentVersion,
             id: hypothesisId,
             slug,
             description,

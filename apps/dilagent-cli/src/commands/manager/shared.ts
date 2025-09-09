@@ -103,13 +103,16 @@ export const generateHypotheses = ({
     // Context repo is already set up by setup command
     const contextDir = workingDirService.paths.contextRepo
 
-    // Record timeline event
+    // Record timeline event and set state phase
     yield* timelineService.recordEvent(
       createPhaseEvent({
         event: 'phase.started',
         phase: 'hypothesis-generation',
       }),
     )
+
+    // Set the current phase to hypothesis-generation
+    yield* stateStore.setPhase('hypothesis-generation')
 
     // Check for existing reproduction results
     const artifactsDir = workingDirService.paths.artifacts
@@ -208,6 +211,15 @@ export const generateHypotheses = ({
 
     yield* Effect.logDebug(`All hypotheses prepared and ready to run`)
 
+    // Record hypothesis-generation phase completion
+    yield* timelineService.recordEvent(
+      createPhaseEvent({
+        event: 'phase.completed',
+        phase: 'hypothesis-generation',
+        details: { count: hypotheses.length },
+      }),
+    )
+
     return hypotheses
   }).pipe(Effect.withSpan('generateExperiments'))
 
@@ -235,7 +247,7 @@ export const prepareExperiment = ({ hypothesis }: { hypothesis: HypothesisInput 
       workingDirId: state.workingDirId,
     })
 
-    const worktree = hypothesisState.worktreePath
+    const worktreeDirectory = hypothesisState.worktreePath
 
     // Ensure hypothesis metadata directory exists and get file paths
     const metadataDir = yield* workingDirService.ensureHypothesisDir({
@@ -249,12 +261,15 @@ export const prepareExperiment = ({ hypothesis }: { hypothesis: HypothesisInput 
 
     // Write metadata files to the hypothesis metadata directory (not the worktree)
     yield* fs.writeFileString(hypothesisFiles.instructionsMd, instructionsMd)
-    yield* fs.writeFileString(hypothesisFiles.contextMd, makeContextMd({ ...hypothesis, workingDirectory: worktree }))
+    yield* fs.writeFileString(
+      hypothesisFiles.contextMd,
+      makeContextMd({ ...hypothesis, worktreeDirectory, contextRelativePath: state.contextRelativePath }),
+    )
     yield* fs.writeFileString(hypothesisFiles.reportMd, 'TODO: Create report here')
-    yield* fs.writeFileString(hypothesisFiles.generatedPromptMd, 'TODO: Store generated prompt here')
 
     // Create empty hypothesis log file
     yield* fs.writeFileString(hypothesisFiles.hypothesisLog, '')
+    yield* fs.writeFileString(hypothesisFiles.hypothesisPromptLog, '')
 
     yield* Effect.logDebug(
       `[prepareExperiment] Created hypothesis metadata files in ${metadataDir} for ${hypothesis.hypothesisId}`,
@@ -310,16 +325,9 @@ export const runHypothesisWorker = ({
         cwdOption: Option.some(cwd),
       })
 
-      // Mark as completed with execution time tracking
+      // Hypothesis completion is handled by MCP tools (dilagent_hypothesis_set_result)
+      // No need to update status here - MCP tools already set status='completed' with result
       const executionTimeMs = Date.now() - startTime
-      yield* stateStore.updateHypothesis({
-        id: hypothesis.hypothesisId,
-        update: {
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-        },
-      })
-
       yield* Effect.logDebug(`✅ Completed hypothesis ${hypothesis.hypothesisId} (${Duration.format(executionTimeMs)})`)
     })
 

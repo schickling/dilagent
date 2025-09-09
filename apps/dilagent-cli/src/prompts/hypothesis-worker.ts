@@ -392,7 +392,11 @@ Check all hypotheses status **ONLY during DESIGNING phase**:
 `
 
 /** context.md */
-export const makeContextMd = ({ workingDirectory, ...hypothesis }: HypothesisInput & { workingDirectory: string }) => {
+export const makeContextMd = ({
+  worktreeDirectory,
+  contextRelativePath,
+  ...hypothesis
+}: HypothesisInput & { worktreeDirectory: string; contextRelativePath: string | undefined }) => {
   // Compute paths from the hypothesis information - no need for external metadataDirectory param
   const hypothesisId = hypothesis.hypothesisId
   const hypothesisSlug = hypothesis.problemTitle
@@ -408,7 +412,9 @@ export const makeContextMd = ({ workingDirectory, ...hypothesis }: HypothesisInp
 
 Follow the instructions provided in the \`instructions.md\` file located in your metadata directory.
 
-## Working Directory: \`${workingDirectory}\`
+## Worktree Directory: \`${worktreeDirectory}\`
+
+${contextRelativePath ? `**Relative Context Directory**: Focus on the files in \`${contextRelativePath}\`` : ''}
 
 **🔒 Git Worktree Isolation**: You are working in an isolated git worktree. This means:
 - You can modify any file in your working directory without affecting other hypotheses
@@ -428,9 +434,9 @@ ${metadataDirectory}/
 └── hypothesis.log       ← Hypothesis-specific execution log
 \`\`\`
 
-**Working Directory**: \`${workingDirectory}\`
+**Worktree Directory**: \`${worktreeDirectory}\`
 \`\`\`
-${workingDirectory}/
+${worktreeDirectory}/
 ├── [project files...]  ← All project files (safe to modify)
 └── [can create any files needed for experiments]
 \`\`\`

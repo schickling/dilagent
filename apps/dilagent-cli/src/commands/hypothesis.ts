@@ -82,6 +82,7 @@ export const hypothesisCommand = Cli.Command.make(
               workingDir: resolvedWorktree,
               mcpConfig,
               skipPermissions: true,
+              debugLogPath: metadataFiles.hypothesisPromptLog,
             },
           )
           .pipe(Stream.tap(Effect.log), Stream.runDrain)

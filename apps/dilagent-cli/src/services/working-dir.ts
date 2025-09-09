@@ -51,8 +51,8 @@ export class WorkingDirService extends Effect.Service<WorkingDirService>()('Work
             contextMd: Path.resolve(baseDir, 'context.md'),
             instructionsMd: Path.resolve(baseDir, 'instructions.md'),
             reportMd: Path.resolve(baseDir, 'report.md'),
-            generatedPromptMd: Path.resolve(baseDir, 'generated-prompt.md'),
             hypothesisLog: Path.resolve(baseDir, 'hypothesis.log'),
+            hypothesisPromptLog: Path.resolve(baseDir, 'hypothesis-prompt.log'),
           } as const
         },
       } as const

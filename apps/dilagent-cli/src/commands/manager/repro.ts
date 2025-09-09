@@ -244,12 +244,13 @@ const reproduceIssue = ({
     // Update StateStore with reproduction results
     yield* stateStore.updateState((state) => ({
       ...state,
-      currentPhase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'reproduction',
+      // Stay in reproduction phase - let generate-hypotheses handle its own phase transition
+      currentPhase: 'reproduction',
       completedPhases:
         reproductionResult._tag === 'Success' ? [...state.completedPhases, 'reproduction'] : state.completedPhases,
       progress: {
         ...state.progress,
-        phase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'reproduction',
+        phase: 'reproduction',
         message:
           reproductionResult._tag === 'Success'
             ? 'Reproduction successful, ready for hypothesis generation'

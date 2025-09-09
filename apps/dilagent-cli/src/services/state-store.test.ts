@@ -4,16 +4,15 @@ import { FileSystem } from '@effect/platform'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import packageJson from '../../package.json' with { type: 'json' }
 import type { DilagentState } from '../schemas/file-management.ts'
 import { makeTempDir } from '../utils/fs.ts'
+import { dilagentVersion } from '../utils/version.ts'
 import { StateStore } from './state-store.ts'
 import { WorkingDirService } from './working-dir.ts'
 
-const dilagentVersion = packageJson.version
-
 // Helper function to create expected default state
 const createExpectedDefaultState = (workingDir: string): DilagentState => ({
+  dilagentVersion,
   workingDirId: expect.any(String),
   problemPrompt: '',
   contextDirectory: workingDir,
@@ -177,6 +176,7 @@ describe('StateStore', () => {
     it('should load existing state from file on initialization', async () => {
       // Pre-create a state file
       const existingState: DilagentState = {
+        dilagentVersion,
         workingDirId: '550e8400-e29b-41d4-a716-446655440000',
         problemPrompt: 'Existing problem description',
         contextDirectory: testDir,
@@ -184,7 +184,6 @@ describe('StateStore', () => {
         workingDirectory: testDir,
         hypotheses: {
           H001: {
-            dilagentVersion,
             id: 'H001',
             slug: 'existing-hyp',
             description: 'Existing hypothesis',
