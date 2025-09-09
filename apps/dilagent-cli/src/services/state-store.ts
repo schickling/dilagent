@@ -59,51 +59,9 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
       },
     })
 
-    // Helper to migrate old state files
-    const migrateState = (rawState: any): DilagentState => {
-      // If workingDirId is missing, add it
-      if (!rawState.workingDirId) {
-        rawState.workingDirId = crypto.randomUUID()
-      }
-      
-      // If problemPrompt is missing, add empty string
-      if (!rawState.problemPrompt) {
-        rawState.problemPrompt = ''
-      }
-      
-      // If contextRelativePath is missing, set to undefined
-      if (!rawState.hasOwnProperty('contextRelativePath')) {
-        rawState.contextRelativePath = undefined
-      }
-
-      // Migrate old hypothesis result formats
-      if (rawState.hypotheses && typeof rawState.hypotheses === 'object') {
-        for (const [hypothesisId, hypothesis] of Object.entries(rawState.hypotheses as any)) {
-          if (hypothesis && typeof hypothesis === 'object') {
-            const h = hypothesis as any
-            // If result exists but doesn't have _tag, it's an old format - remove it
-            if (h.result && typeof h.result === 'object' && !h.result._tag) {
-              // Clear invalid result - let it be set properly through MCP tools
-              h.result = undefined
-            }
-          }
-        }
-      }
-      
-      return rawState as DilagentState
-    }
-
     // Read existing state or create default - happens ONCE during init
     const initialState = yield* fs.readFileString(workingDir.paths.stateFile).pipe(
-      Effect.flatMap((content) => 
-        Effect.try({
-          try: () => JSON.parse(content),
-          catch: (error) => new StateStoreError({ cause: error, message: 'Failed to parse state file JSON' })
-        }).pipe(
-          Effect.map(migrateState),
-          Effect.flatMap((migrated) => Schema.decodeUnknown(DilagentStateSchema)(migrated))
-        )
-      ),
+      Effect.flatMap((content) => Schema.decodeUnknown(Schema.parseJson(DilagentStateSchema))(content)),
       Effect.catchIf(
         (_) => _._tag === 'SystemError' && _.reason === 'NotFound',
         () =>

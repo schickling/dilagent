@@ -118,8 +118,6 @@ describe('REPL', () => {
     })
   })
 
-  // Legacy state management tests removed - REPL now focuses on hypothesis management
-
   describe('error handling', () => {
     it('handles completer errors gracefully', async () => {
       // Create a completer store that will fail (not used in simplified version but kept for interface)

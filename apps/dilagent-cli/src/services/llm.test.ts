@@ -412,7 +412,5 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
         }),
       )
     })
-
-    // Removed legacy state.keys test - no modern equivalent needed
   })
 })

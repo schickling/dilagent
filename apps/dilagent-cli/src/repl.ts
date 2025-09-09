@@ -45,7 +45,7 @@ export interface CompleterStore {
   keys(): Effect.Effect<string[], unknown, never>
 }
 
-// Adapter to make StateStore compatible with CompleterStore for hypothesis IDs
+// Adapter to make StateStore work with CompleterStore for hypothesis IDs
 const createCompleterAdapter = (store: StateStore): CompleterStore => ({
   keys: () =>
     Effect.gen(function* () {

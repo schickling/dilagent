@@ -203,7 +203,7 @@ export const SummaryInput = Schema.Struct({
   description: 'Input data for generating summary reports',
 })
 
-// Re-export common schemas for backward compatibility
+// Re-export common schemas
 export { HypothesisId, hypothesisSlug, timestamp } from './common.ts'
 
 // Export types
