@@ -87,7 +87,32 @@ export const summaryCommand = Cli.Command.make(
       const metricsEndTime = state.metrics.endTime ? new Date(state.metrics.endTime).getTime() : Date.now()
       const wallClockTime = metricsEndTime - startTime
 
-      // Generate summary content
+      const outcomeData = (() => {
+        if (provenHypotheses > 0) {
+          const provenResults = hypothesesList
+            .filter((h) => h.result?._tag === 'Proven')
+            .map((h) => {
+              const result = h.result as any
+              return {
+                id: h.id,
+                rootCauseTypes: result.rootCauses?.map((rc: any) => rc.type) || [],
+                solution: result.solutionProposals?.primarySolution?.name || 'No solution proposed',
+                confidence: result.confidence || 'N/A',
+              }
+            })
+
+          const allRootCauseTypes = provenResults.flatMap((r) => r.rootCauseTypes)
+          const uniqueTypes = [...new Set(allRootCauseTypes)].filter((t) => t)
+
+          return { type: 'proven' as const, rootCauseTypes: uniqueTypes, solutions: provenResults }
+        } else if (disprovenHypotheses > 0) {
+          const disprovenCount = hypothesesList.filter((h) => h.result?._tag === 'Disproven').length
+          return { type: 'disproven' as const, count: disprovenCount, isAll: disprovenCount === totalHypotheses }
+        } else {
+          return { type: 'none' as const }
+        }
+      })()
+
       const summaryContent = `# Debugging Session Summary
 
 ## Overview
@@ -164,6 +189,21 @@ ${
         : '🔄 **Testing in progress** - Some hypotheses ruled out, others still being evaluated'
 }
 
+### 📊 Outcome Summary
+${(() => {
+  if (outcomeData.type === 'proven') {
+    return `**Root Cause Categories**: ${outcomeData.rootCauseTypes.length > 0 ? outcomeData.rootCauseTypes.join(', ') : 'Not categorized'}
+**Primary Solutions**: 
+${outcomeData.solutions.map((r) => `  • ${r.id}: ${r.solution}`).join('\n')}`
+  } else if (outcomeData.type === 'disproven') {
+    return `**Analysis**: ${outcomeData.count} hypotheses ruled out. ${
+      outcomeData.isAll ? 'Consider exploring different problem areas.' : 'Continue testing remaining hypotheses.'
+    }`
+  } else {
+    return 'No completed hypotheses to summarize yet.'
+  }
+})()}
+
 ---
 *Generated on ${new Date().toLocaleString()}*
 `
@@ -189,6 +229,25 @@ ${
       yield* Effect.log(`   • Hypotheses successful: ${state.metrics.hypothesesSuccessful}`)
       yield* Effect.log(`   • Hypotheses failed: ${state.metrics.hypothesesFailed}`)
       yield* Effect.log(`   • Total timeline events: ${timelineStats.totalEvents}`)
+
+      yield* Effect.log('')
+      yield* Effect.log('📊 Outcome Summary:')
+      if (outcomeData.type === 'proven') {
+        yield* Effect.log(
+          `   • Root causes: ${outcomeData.rootCauseTypes.length > 0 ? outcomeData.rootCauseTypes.join(', ') : 'Not categorized'}`,
+        )
+        yield* Effect.log(`   • Solutions found:`)
+        for (const solution of outcomeData.solutions) {
+          yield* Effect.log(`     - ${solution.id}: ${solution.solution}`)
+        }
+      } else if (outcomeData.type === 'disproven') {
+        yield* Effect.log(`   • ${outcomeData.count} hypotheses ruled out`)
+        if (outcomeData.isAll) {
+          yield* Effect.log(`   • Consider exploring different problem areas`)
+        }
+      } else {
+        yield* Effect.log(`   • No completed hypotheses yet`)
+      }
 
       yield* Effect.log(`📄 Generated debugging session summary: ${summaryFile}`)
 
