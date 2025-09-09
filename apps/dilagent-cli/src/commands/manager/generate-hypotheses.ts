@@ -3,11 +3,12 @@ import * as Cli from '@effect/cli'
 import { Effect, Layer, Option } from 'effect'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { GitManagerService } from '../../services/git-manager.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { countOption, cwdOption, generateHypotheses, llmOption, workingDirectoryOption } from './shared.ts'
+import { countOption, cwdOption, generateHypotheses, LOG_FILES, llmOption, workingDirectoryOption } from './shared.ts'
 
 /**
  * Command to generate testable hypotheses for debugging
@@ -70,7 +71,15 @@ export const generateHypothesesCommand = Cli.Command.make(
       Effect.provide(
         Layer.mergeAll(
           llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
-          Layer.mergeAll(GitManagerService.Default, TimelineService.Default, StateStore.Default).pipe(
+          Layer.mergeAll(
+            GitManagerService.Default,
+            TimelineService.Default,
+            StateStore.Default,
+            createFileLoggerLayer(
+              path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.GENERATE_HYPOTHESES),
+              { replace: false, format: 'logfmt' },
+            ),
+          ).pipe(
             Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
           ),
         ),

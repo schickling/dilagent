@@ -1,5 +1,6 @@
-import { PlatformLogger } from '@effect/platform'
-import { Logger } from 'effect'
+import path from 'node:path'
+import { FileSystem, PlatformLogger } from '@effect/platform'
+import { Effect, Layer, Logger } from 'effect'
 
 /**
  * Creates a file logger that writes logs to the specified file path.
@@ -21,7 +22,16 @@ export const createFileLoggerLayer = (
   { replace, format }: { replace?: boolean | Logger.Logger<any, any>; format?: 'logfmt' | 'json' } = {},
 ) => {
   const logger = format === 'logfmt' ? createFileLogger(filePath) : createJsonFileLogger(filePath)
-  return replace
-    ? Logger.replaceScoped(Logger.isLogger(replace) ? replace : Logger.defaultLogger, logger)
-    : Logger.addEffect(logger)
+
+  return Layer.unwrapEffect(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      // Make sure the directory exists
+      yield* fs.makeDirectory(path.dirname(filePath), { recursive: true })
+
+      return replace
+        ? Logger.replaceScoped(Logger.isLogger(replace) ? replace : Logger.defaultLogger, logger)
+        : Logger.addEffect(logger)
+    }),
+  )
 }

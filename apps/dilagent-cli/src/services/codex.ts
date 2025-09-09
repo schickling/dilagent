@@ -8,7 +8,7 @@ import { getWriteToLogFile, LLMError, type LLMOptions, LLMService, type MCPConfi
 export const CodexModel = Schema.Literal('gpt-5', 'gpt-5-high', 'gpt-5-medium', 'gpt-5-low')
 export type CodexModel = typeof CodexModel.Type
 
-export const CodexSandboxMode = Schema.Literal('read-only', 'workspace-write', 'danger-full-access')
+export const CodexSandboxMode = Schema.Literal('read-only', 'working directory-write', 'danger-full-access')
 export type CodexSandboxMode = typeof CodexSandboxMode.Type
 
 /**

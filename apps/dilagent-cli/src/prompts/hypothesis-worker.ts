@@ -419,7 +419,7 @@ Follow the instructions provided in the \`instructions.md\` file.
 - You can modify any file in your working directory without affecting other hypotheses
 - Each hypothesis runs in its own branch: \`dilagent/${hypothesis.hypothesisId}-{hypothesisSlug}\`  
 - Your changes are isolated from the main project and other hypothesis workers
-- Feel free to modify, test, and experiment safely - this is your isolated workspace
+- Feel free to modify, test, and experiment safely - this is your isolated working directory
 
 **📁 File Structure**:
 \`\`\`

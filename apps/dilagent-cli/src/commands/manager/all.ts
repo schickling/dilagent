@@ -1,5 +1,7 @@
+import path from 'node:path'
 import * as Cli from '@effect/cli'
-import { Effect } from 'effect'
+import { Effect, Layer, Option } from 'effect'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { generateHypothesesCommand } from './generate-hypotheses.ts'
 import { reproCommand } from './repro.ts'
 import { runHypothesisWorkersCommand } from './run-hypotheses.ts'
@@ -9,6 +11,7 @@ import {
   countOption,
   cwdOption,
   flakyOption,
+  LOG_FILES,
   llmOption,
   portOption,
   promptOption,
@@ -27,7 +30,7 @@ import { summaryCommand } from './summary.ts'
  * - The summary command handles final workflow statistics and completion
  *
  * Flow:
- * 1. setup: Initialize workspace and git repositories
+ * 1. setup: Initialize working directory and git repositories
  * 2. repro: Reproduce the issue (records setup phase events)
  * 3. generate-hypotheses: Generate testable hypotheses (records hypothesis-generation events)
  * 4. run-hypotheses: Execute hypothesis tests in parallel (records hypothesis-testing events)
@@ -49,9 +52,14 @@ export const allCommand = Cli.Command.make(
     cwd: cwdOption,
     flaky: flakyOption,
   },
-  (options) =>
-    Effect.gen(function* () {
-      // Setup workspace
+  (options) => {
+    const resolvedCwd = Option.getOrElse(options.cwd, () => process.cwd())
+    const resolvedWorkingDirectory = path.resolve(resolvedCwd, options.workingDirectory)
+
+    return Effect.gen(function* () {
+      yield* Effect.logDebug('[manager all] 🚀 Starting complete dilagent workflow...')
+
+      // Setup working directory
       yield* setupCommand.handler({
         contextDirectory: options.contextDirectory,
         workingDirectory: options.workingDirectory,
@@ -89,5 +97,17 @@ export const allCommand = Cli.Command.make(
         workingDirectory: options.workingDirectory,
         cwd: options.cwd,
       })
-    }),
+
+      yield* Effect.logDebug('[manager all] ✅ Complete dilagent workflow finished!')
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createFileLoggerLayer(path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.ALL), {
+            replace: false,
+            format: 'logfmt',
+          }),
+        ),
+      ),
+    )
+  },
 )

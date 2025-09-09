@@ -2,11 +2,12 @@ import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { FileSystem } from '@effect/platform'
 import { Effect, Layer, Option } from 'effect'
+import { createPhaseEvent } from '../../schemas/file-management.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { createPhaseEvent } from '../../schemas/file-management.ts'
-import { cwdOption, workingDirectoryOption } from './shared.ts'
+import { cwdOption, LOG_FILES, workingDirectoryOption } from './shared.ts'
 
 /**
  * Command to generate comprehensive workflow summary and statistics
@@ -200,6 +201,12 @@ ${
     }).pipe(
       Effect.provide(
         Layer.mergeAll(TimelineService.Default, StateStore.Default).pipe(
+          Layer.provideMerge(
+            createFileLoggerLayer(path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.SUMMARY), {
+              replace: false,
+              format: 'logfmt',
+            }),
+          ),
           Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
         ),
       ),

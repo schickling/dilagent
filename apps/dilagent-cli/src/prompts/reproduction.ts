@@ -85,7 +85,7 @@ Identify which type best describes your reproduction:
 - BUT: Keep the reproduction reliable above all else
 
 **4. Working Directory Structure**
-You are working within a structured .dilagent workspace:
+You are working within a structured .dilagent working directory:
 
 \`\`\`
 .dilagent/

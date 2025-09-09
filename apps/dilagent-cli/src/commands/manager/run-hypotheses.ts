@@ -2,17 +2,19 @@ import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { Effect, Layer, Option } from 'effect'
 import { runRepl } from '../../repl.ts'
+import { createPhaseEvent } from '../../schemas/file-management.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { getFreePort } from '../../services/free-port.ts'
 import { GitManagerService } from '../../services/git-manager.ts'
 import { createMcpServerLayer } from '../../services/mcp-server.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { createPhaseEvent } from '../../schemas/file-management.ts'
 import {
   cwdOption,
+  LOG_FILES,
   llmOption,
   loadExperiments,
   portOption,
@@ -121,6 +123,12 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
               llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
               Layer.mergeAll(GitManagerService.Default, TimelineService.Default, StateStore.Default).pipe(
                 Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+                Layer.provideMerge(
+                  createFileLoggerLayer(
+                    path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.RUN_HYPOTHESES),
+                    { replace: false, format: 'logfmt' },
+                  ),
+                ),
               ),
             ),
           ),

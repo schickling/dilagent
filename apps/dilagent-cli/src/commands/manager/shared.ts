@@ -30,7 +30,18 @@ export const CONTEXT_DIR = 'context'
 export const GENERATE_HYPOTHESES_PROMPT_FILE = 'generate-hypotheses.md'
 export const REPRODUCTION_FILE = 'reproduction.json'
 export const REPRODUCTION_SCRIPT_FILE = 'repro.ts'
-export const REPRODUCTION_LOG_FILE = 'reproduction.log'
+
+// Log file constants for each manager stage with phase numbers
+export const LOG_FILES = {
+  SETUP: '0-setup.log',
+  REPRODUCTION: '1-reproduction.log',
+  REPRODUCTION_PROMPT: '1-reproduction-prompt.log',
+  GENERATE_HYPOTHESES: '2-generate-hypotheses.log',
+  GENERATE_HYPOTHESES_PROMPT: '2-generate-hypotheses-prompt.log',
+  RUN_HYPOTHESES: '3-run-hypotheses.log',
+  SUMMARY: '4-summary.log',
+  ALL: 'all.log',
+} as const
 
 // Reusable CLI option definitions
 export const workingDirectoryOption = Cli.Options.directory('working-directory').pipe(
@@ -152,7 +163,7 @@ export const generateHypotheses = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(workingDirService.paths.logs, 'generate-hypotheses.logDebug'),
+        debugLogPath: path.join(workingDirService.paths.logs, LOG_FILES.GENERATE_HYPOTHESES_PROMPT),
       })
       .pipe(
         Effect.timeout('15 minutes'),
@@ -167,8 +178,10 @@ export const generateHypotheses = ({
     const hypotheses = HypothesisInputResult.hypotheses
 
     // Save hypotheses to artifacts directory
-    const hypothesesFile = path.join(artifactsDir, 'hypotheses.json')
-    const hypothesesJson = yield* Schema.encode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypotheses)
+    const hypothesesFile = path.join(artifactsDir, HYPOTHESES_FILE)
+    const hypothesesJson = yield* Schema.encode(Schema.parseJson(Schema.Array(HypothesisInputSchema), { space: 2 }))(
+      hypotheses,
+    )
     yield* fs.writeFileString(hypothesesFile, hypothesesJson)
 
     yield* timelineService.recordEvent(
@@ -181,12 +194,6 @@ export const generateHypotheses = ({
     )
 
     yield* Effect.logDebug(`Saved ${hypotheses.length} hypotheses to ${hypothesesFile}`)
-
-    // Prepare all hypotheses immediately after generation
-    yield* Effect.logDebug(`Preparing hypothesis directories...`)
-    yield* Effect.forEach(hypotheses, (hypothesis) => prepareExperiment({ hypothesis }), { concurrency: 4 })
-
-    yield* Effect.logDebug(`All hypotheses prepared and ready to run`)
 
     // Update StateStore with generated hypotheses
     yield* stateStore.setPhase('hypothesis-testing')
@@ -204,6 +211,12 @@ export const generateHypotheses = ({
     )
 
     yield* Effect.logDebug(`Registered ${hypotheses.length} hypotheses in state`)
+
+    // Prepare all hypotheses after registration
+    yield* Effect.logDebug(`Preparing hypothesis directories...`)
+    yield* Effect.forEach(hypotheses, (hypothesis) => prepareExperiment({ hypothesis }), { concurrency: 4 })
+
+    yield* Effect.logDebug(`All hypotheses prepared and ready to run`)
 
     return hypotheses
   }).pipe(Effect.withSpan('generateExperiments'))

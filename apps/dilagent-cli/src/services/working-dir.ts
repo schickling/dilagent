@@ -143,7 +143,7 @@ export class WorkingDirService extends Effect.Service<WorkingDirService>()('Work
         if (!isInitialized) {
           return yield* new WorkingDirNotInitializedError({
             workingDir,
-            message: `Dilagent workspace not initialized at ${workingDir}. Run 'dilagent manager setup' first.`,
+            message: `Dilagent working directory not initialized at ${workingDir}. Run 'dilagent manager setup' first.`,
           })
         }
         yield* Effect.logDebug(`[WorkingDirService] Validated existing working directory structure at ${workingDir}`)

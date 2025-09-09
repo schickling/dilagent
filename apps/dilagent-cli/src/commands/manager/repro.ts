@@ -7,23 +7,17 @@ import {
   refineReproductionPrompt,
   reproductionSystemPrompt,
 } from '../../prompts/reproduction.ts'
-import { ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
 import { createPhaseEvent, createSystemEvent } from '../../schemas/file-management.ts'
+import { ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { LLMService } from '../../services/llm.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
 import { parseJsonLlmResponse } from '../../utils/schema-utils.ts'
-import {
-  cwdOption,
-  flakyOption,
-  llmOption,
-  REPRODUCTION_FILE,
-  REPRODUCTION_LOG_FILE,
-  workingDirectoryOption,
-} from './shared.ts'
+import { cwdOption, flakyOption, LOG_FILES, llmOption, REPRODUCTION_FILE, workingDirectoryOption } from './shared.ts'
 
 /**
  * Command to reproduce an issue for diagnostic understanding
@@ -133,7 +127,14 @@ export const reproCommand = Cli.Command.make(
       Effect.provide(
         Layer.mergeAll(
           llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
-          Layer.mergeAll(TimelineService.Default, StateStore.Default).pipe(
+          Layer.mergeAll(
+            TimelineService.Default,
+            StateStore.Default,
+            createFileLoggerLayer(path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.REPRODUCTION), {
+              replace: false,
+              format: 'logfmt',
+            }),
+          ).pipe(
             Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
           ),
         ),
@@ -211,7 +212,7 @@ const reproduceIssue = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(workingDirService.paths.logs, REPRODUCTION_LOG_FILE),
+        debugLogPath: path.join(workingDirService.paths.logs, LOG_FILES.REPRODUCTION_PROMPT),
       })
       .pipe(
         Effect.timeout('30 minutes'),
@@ -226,14 +227,15 @@ const reproduceIssue = ({
     yield* fs.writeFileString(reproductionFile, reproductionJsonContent)
 
     // Record timeline event
-    const details = reproductionResult._tag === 'Success' 
-      ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
-      : undefined
+    const details =
+      reproductionResult._tag === 'Success'
+        ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
+        : undefined
     yield* timelineService.recordEvent(
       createPhaseEvent({
         event: reproductionResult._tag === 'Success' ? 'phase.completed' : 'phase.failed',
         phase: 'setup',
-        ...(details && { details }),  // Only include details if not undefined
+        ...(details && { details }), // Only include details if not undefined
       }),
     )
 

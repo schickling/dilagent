@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import { HypothesisId, timestamp, WorkingDirId } from './common.ts'
+import { HypothesisId, timestamp } from './common.ts'
 
 // Event type literals grouped by category
 export const PhaseEventType = Schema.Literal('phase.started', 'phase.completed', 'phase.failed').annotations({
@@ -219,13 +219,14 @@ export const createPhaseEvent = (params: {
   phase: typeof WorkflowPhase.Type
   message?: string
   details?: Record<string, unknown>
-}): Omit<PhaseEvent, 'timestamp'> => ({
-  _tag: 'PhaseEvent',
-  event: params.event,
-  phase: params.phase,
-  message: params.message,
-  details: params.details,
-} as Omit<PhaseEvent, 'timestamp'>)
+}): Omit<PhaseEvent, 'timestamp'> =>
+  ({
+    _tag: 'PhaseEvent',
+    event: params.event,
+    phase: params.phase,
+    message: params.message,
+    details: params.details,
+  }) as Omit<PhaseEvent, 'timestamp'>
 
 export const createHypothesisEvent = (params: {
   event: typeof HypothesisEventType.Type
@@ -233,50 +234,54 @@ export const createHypothesisEvent = (params: {
   hypothesisId?: typeof HypothesisId.Type
   message?: string
   details?: Record<string, unknown>
-}): Omit<HypothesisEvent, 'timestamp'> => ({
-  _tag: 'HypothesisEvent',
-  event: params.event,
-  phase: params.phase,
-  hypothesisId: params.hypothesisId,
-  message: params.message,
-  details: params.details,
-} as Omit<HypothesisEvent, 'timestamp'>)
+}): Omit<HypothesisEvent, 'timestamp'> =>
+  ({
+    _tag: 'HypothesisEvent',
+    event: params.event,
+    phase: params.phase,
+    hypothesisId: params.hypothesisId,
+    message: params.message,
+    details: params.details,
+  }) as Omit<HypothesisEvent, 'timestamp'>
 
 export const createSystemEvent = (params: {
   event: typeof SystemEventType.Type
   phase?: typeof WorkflowPhase.Type
   message?: string
   details?: Record<string, unknown>
-}): Omit<SystemEvent, 'timestamp'> => ({
-  _tag: 'SystemEvent',
-  event: params.event,
-  phase: params.phase,
-  message: params.message,
-  details: params.details,
-} as Omit<SystemEvent, 'timestamp'>)
+}): Omit<SystemEvent, 'timestamp'> =>
+  ({
+    _tag: 'SystemEvent',
+    event: params.event,
+    phase: params.phase,
+    message: params.message,
+    details: params.details,
+  }) as Omit<SystemEvent, 'timestamp'>
 
 export const createUserEvent = (params: {
   event: typeof UserEventType.Type
   phase?: typeof WorkflowPhase.Type
   message?: string
   details?: Record<string, unknown>
-}): Omit<UserEvent, 'timestamp'> => ({
-  _tag: 'UserEvent',
-  event: params.event,
-  phase: params.phase,
-  message: params.message,
-  details: params.details,
-} as Omit<UserEvent, 'timestamp'>)
+}): Omit<UserEvent, 'timestamp'> =>
+  ({
+    _tag: 'UserEvent',
+    event: params.event,
+    phase: params.phase,
+    message: params.message,
+    details: params.details,
+  }) as Omit<UserEvent, 'timestamp'>
 
 export const createGitEvent = (params: {
   event: typeof GitEventType.Type
   phase?: typeof WorkflowPhase.Type
   message?: string
   details?: Record<string, unknown>
-}): Omit<GitEvent, 'timestamp'> => ({
-  _tag: 'GitEvent',
-  event: params.event,
-  phase: params.phase,
-  message: params.message,
-  details: params.details,
-} as Omit<GitEvent, 'timestamp'>)
+}): Omit<GitEvent, 'timestamp'> =>
+  ({
+    _tag: 'GitEvent',
+    event: params.event,
+    phase: params.phase,
+    message: params.message,
+    details: params.details,
+  }) as Omit<GitEvent, 'timestamp'>

@@ -61,7 +61,7 @@ Principled, structured debugging and root cause analysis
 - [ ] Improve claude debug logfile output (currently JSONL)
 - [ ] Use repl as interactive debugger e.g. when prompt fails
 - [ ] Example files (for testing/refinement)
-  - `.diligent` folder in each workspace/experiment
+  - `.diligent` folder in each working directory/experiment
   - is each experiment its own worktree?
 - [ ] Help LLM to make MCP tool call easier
 - [ ] Improve `report.md` structure
