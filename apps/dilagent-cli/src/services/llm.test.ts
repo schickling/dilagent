@@ -219,9 +219,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Initialize store with a hypothesis
-          const state = yield* store.getState()
-          yield* store.updateState(() => ({
-            ...state,
+          yield* store.updateState((currentState) => ({
+            ...currentState,
             hypotheses: {
               H001: {
                 id: 'H001',
@@ -262,9 +261,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Initialize store with a running hypothesis
-          const state = yield* store.getState()
-          yield* store.updateState(() => ({
-            ...state,
+          yield* store.updateState((currentState) => ({
+            ...currentState,
             hypotheses: {
               H002: {
                 id: 'H002',
@@ -306,9 +304,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Initialize store with multiple hypotheses
-          const state = yield* store.getState()
-          yield* store.updateState(() => ({
-            ...state,
+          yield* store.updateState((currentState) => ({
+            ...currentState,
             hypotheses: {
               H003: {
                 id: 'H003',
@@ -357,9 +354,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Initialize store with hypotheses in various states
-          const state = yield* store.getState()
-          yield* store.updateState(() => ({
-            ...state,
+          yield* store.updateState((currentState) => ({
+            ...currentState,
             hypotheses: {
               H005: {
                 id: 'H005',
