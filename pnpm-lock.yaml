@@ -22,7 +22,7 @@ importers:
         version: 3.2.4(@types/node@24.3.1)
 
   apps/dilagent-cli:
-    dependencies:
+    devDependencies:
       '@effect/ai':
         specifier: ^0.26.1
         version: 0.26.1(@effect/experimental@0.54.6(@effect/platform@0.90.7(effect@3.17.13))(effect@3.17.13))(@effect/platform@0.90.7(effect@3.17.13))(@effect/rpc@0.69.2(@effect/platform@0.90.7(effect@3.17.13))(effect@3.17.13))(effect@3.17.13)
@@ -44,13 +44,12 @@ importers:
       '@effect/typeclass':
         specifier: ^0.36.0
         version: 0.36.0(effect@3.17.13)
-      effect:
-        specifier: ^3.17.13
-        version: 3.17.13
-    devDependencies:
       '@types/node':
         specifier: ^24.3.1
         version: 24.3.1
+      effect:
+        specifier: ^3.17.13
+        version: 3.17.13
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@24.3.1)

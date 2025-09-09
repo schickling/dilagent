@@ -3,7 +3,7 @@ import { McpServer } from '@effect/ai'
 import { HttpRouter } from '@effect/platform'
 import { NodeHttpServer } from '@effect/platform-node'
 import { Layer } from 'effect'
-import { McpToolsLayer } from './mcp-tools.js'
+import { McpToolsLayer } from './mcp-tools.ts'
 
 export const createMcpServerLayer = (port: number) =>
   Layer.mergeAll(McpToolsLayer, HttpRouter.Default.serve()).pipe(

@@ -1,177 +1,171 @@
 import { Schema } from 'effect'
+import { HypothesisId, hypothesisSlug, timestamp, WorkingDirId } from './common.ts'
+import { HypothesisResult } from './hypothesis.ts'
 
-// Common types (reused across file management schemas)
-export const timestamp = Schema.String.annotations({
-  description: 'ISO 8601 timestamp',
-  examples: ['2025-09-07T12:34:56Z'],
+// Workflow phase literals (renamed from Phase for clarity)
+export const WorkflowPhase = Schema.Literal(
+  'setup',
+  'hypothesis-generation',
+  'hypothesis-testing',
+  'execution',
+  'analysis',
+  'reporting',
+  'completed',
+).annotations({
+  title: 'WorkflowPhase',
+  description: 'Current phase of the Dilagent run workflow',
 })
 
-export const runSlug = Schema.String.annotations({
-  title: 'RunSlug',
-  description: 'Run identifier slug in format YYYY-MM-DD-context',
-  examples: ['2025-09-07-auth-bug', '2025-09-07-memory-issue', '2025-09-07'],
-})
-
-const DigitStr = Schema.Literal('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
-
-export const hypothesisId = Schema.TemplateLiteral('H', DigitStr, DigitStr, DigitStr).annotations({
-  title: 'HypothesisId',
-  description: 'Hypothesis identifier in format H{NNN}',
-  examples: ['H001', 'H002', 'H010'],
-})
-
-export const hypothesisSlug = Schema.String.annotations({
-  title: 'HypothesisSlug',
-  description: 'Auto-generated kebab-case slug from hypothesis description',
-  examples: ['race-condition-state-updates', 'memory-leak-event-handler'],
-})
-
-// Reusable status enums
-export const HypothesisStatus = Schema.Literal('pending', 'running', 'completed', 'failed', 'cancelled').annotations({
+// Hypothesis status literals
+export const HypothesisStatus = Schema.Literal('pending', 'running', 'completed', 'failed', 'skipped').annotations({
   title: 'HypothesisStatus',
   description: 'Status of a hypothesis in the testing process',
 })
 
-// Reuse existing HypothesisResult but extract the result values for simple status tracking
-export const HypothesisResultStatus = Schema.Literal('proven', 'disproven', 'inconclusive').annotations({
-  title: 'HypothesisResultStatus',
-  description: 'Simple result status extracted from full HypothesisResult',
-})
+// Event type literals
+export const EventType = Schema.Literal(
+  // Phase events
+  'phase.started',
+  'phase.completed',
+  'phase.failed',
 
-export const RunPhase = Schema.Literal(
-  'reproduction',
-  'hypothesis-generation',
-  'hypothesis-testing',
-  'completed',
-  'failed',
+  // Hypothesis events
+  'hypothesis.generated',
+  'hypothesis.started',
+  'hypothesis.completed',
+  'hypothesis.failed',
+  'hypothesis.skipped',
+
+  // System events
+  'system.initialized',
+  'system.error',
+  'system.warning',
+
+  // User events
+  'user.feedback',
+  'user.decision',
+
+  // Git events
+  'git.worktree.created',
+  'git.commit.created',
+  'git.branch.created',
 ).annotations({
-  title: 'RunPhase',
-  description: 'Current phase of the Dilagent run',
+  title: 'EventType',
+  description: 'Type of timeline event',
 })
 
-export const ReproductionStatus = Schema.Literal('pending', 'in-progress', 'success', 'failed').annotations({
-  title: 'ReproductionStatus',
-  description: 'Status of reproduction attempt',
-})
+// Re-export HypothesisResult from hypothesis.ts (imported above)
 
-// Reusable hypothesis info structure
-export const HypothesisInfo = Schema.Struct({
-  id: hypothesisId,
+// Individual hypothesis state
+export const HypothesisState = Schema.Struct({
+  id: HypothesisId,
   slug: hypothesisSlug,
-  branch: Schema.String.annotations({
-    description: 'Git branch name for this hypothesis',
-    examples: ['dilagent/2025-09-07-auth-bug/H001-race-condition-state-updates'],
-  }),
-  worktree: Schema.String.annotations({
-    description: 'Worktree directory name',
-    examples: ['H001-race-condition-state-updates'],
+  description: Schema.String.annotations({
+    description: 'Human-readable description of the hypothesis',
   }),
   status: HypothesisStatus,
-  result: Schema.optional(HypothesisResultStatus),
+  result: Schema.optional(HypothesisResult),
+
+  // Git/filesystem info
+  worktreePath: Schema.String.annotations({
+    description: 'Path to the hypothesis worktree directory',
+    examples: ['/path/to/H001-auth-bug'],
+  }),
+  branchName: Schema.String.annotations({
+    description: 'Git branch name for this hypothesis',
+    examples: ['dilagent/H001-auth-bug'],
+  }),
+
+  // Timing
   startedAt: Schema.optional(timestamp),
   completedAt: Schema.optional(timestamp),
-  confidence: Schema.optional(
-    Schema.Number.annotations({
-      description: 'Confidence level between 0 and 1',
-    }),
-  ),
-  executionTimeMs: Schema.optional(Schema.Number),
 }).annotations({
-  title: 'HypothesisInfo',
-  description: 'Core hypothesis information used across multiple schemas',
+  title: 'HypothesisState',
+  description: 'Complete state of a single hypothesis',
+})
+
+// Progress tracking
+export const Progress = Schema.Struct({
+  current: Schema.Number,
+  total: Schema.Number,
+  phase: WorkflowPhase,
+  message: Schema.String.annotations({
+    description: 'Current status message',
+  }),
+}).annotations({
+  title: 'Progress',
+  description: 'Current progress tracking',
+})
+
+// Metrics
+export const Metrics = Schema.Struct({
+  startTime: timestamp,
+  endTime: Schema.optional(timestamp),
+  hypothesesGenerated: Schema.Number,
+  hypothesesCompleted: Schema.Number,
+  hypothesesSuccessful: Schema.Number,
+  hypothesesFailed: Schema.Number,
+  hypothesesSkipped: Schema.Number,
+}).annotations({
+  title: 'Metrics',
+  description: 'Run metrics and statistics',
 })
 
 /**
- * Complete state of a Dilagent run, auto-flushed from state store
+ * Complete state of a Dilagent run
  * @fileLocation .dilagent/state.json
  */
 export const DilagentState = Schema.Struct({
-  runId: runSlug,
-  runSlug,
-  contextDir: Schema.String.annotations({
-    description: 'Path to original context directory',
-  }),
-  contextType: Schema.Literal('git', 'directory'),
-  createdAt: timestamp,
-  lastUpdated: timestamp,
-  currentPhase: RunPhase,
-  phaseStartedAt: timestamp,
-  reproduction: Schema.Struct({
-    status: ReproductionStatus,
-    attempts: Schema.Number,
-    confidence: Schema.Number.annotations({
-      description: 'Reproduction confidence between 0 and 1',
-    }),
-  }),
-  hypotheses: Schema.Array(HypothesisInfo),
-  parallelExecution: Schema.Struct({
-    enabled: Schema.Boolean,
-    maxConcurrent: Schema.Number,
-    currentlyRunning: Schema.Array(hypothesisId),
-  }),
-  overallProgress: Schema.Struct({
-    totalHypotheses: Schema.Number,
-    completed: Schema.Number,
-    failed: Schema.Number,
-    remaining: Schema.Number,
-  }),
-}).annotations({
-  title: 'DilagentState',
-  description: 'Complete state of a Dilagent run, auto-flushed from state store',
-})
+  // Working directory identifier
+  workingDirId: WorkingDirId,
 
-export type DilagentState = typeof DilagentState.Type
-
-/**
- * Configuration for a Dilagent run
- * @fileLocation .dilagent/config.json
- */
-export const DilagentConfig = Schema.Struct({
-  runSlug,
-  llm: Schema.Literal('claude', 'codex'),
-  maxHypotheses: Schema.Number,
-  parallelExecution: Schema.Struct({
-    enabled: Schema.Boolean,
-    maxConcurrent: Schema.Number,
+  // Problem description
+  problemPrompt: Schema.String.annotations({
+    description: 'User-provided description of the problem being debugged',
   }),
-  managerPort: Schema.Number,
-  createdAt: timestamp,
-  problemStatement: Schema.String,
-  contextPath: Schema.String.annotations({
+
+  // Directories
+  contextDirectory: Schema.String.annotations({
     description: 'Original context directory path',
   }),
-  workingDir: Schema.String.annotations({
-    description: 'Working directory path where .dilagent is created',
+  contextRelativePath: Schema.optional(Schema.String).annotations({
+    description: 'Relative path from git root to context directory (e.g., "apps/backend", "." for git root)',
+    examples: ['apps/backend', 'packages/core', '.'],
   }),
-  visibility: Schema.Struct({
-    logLevel: Schema.Literal('error', 'warn', 'info', 'debug'),
-    enableMetrics: Schema.Boolean,
-    enableTimeline: Schema.Boolean,
+  workingDirectory: Schema.String.annotations({
+    description: 'Working directory containing .dilagent folder',
   }),
-}).annotations({
-  title: 'DilagentConfig',
-  description: 'Configuration for a Dilagent run',
-})
 
-export type DilagentConfig = typeof DilagentConfig.Type
+  // Hypotheses
+  hypotheses: Schema.Record({
+    key: HypothesisId,
+    value: HypothesisState,
+  }).annotations({
+    description: 'Map of hypothesis ID to hypothesis state',
+  }),
+
+  // Workflow state
+  currentPhase: WorkflowPhase,
+  completedPhases: Schema.Array(WorkflowPhase),
+
+  // Progress and metrics
+  progress: Progress,
+  metrics: Metrics,
+}).annotations({
+  title: 'DilagentState',
+  description: 'Complete state of a Dilagent run, auto-persisted',
+})
 
 /**
  * A single event in the execution timeline
  */
 export const TimelineEvent = Schema.Struct({
   timestamp,
-  event: Schema.String.annotations({
-    description: 'Event description',
-    examples: ['Hypothesis H001 started', 'Reproduction completed', 'All hypotheses finished'],
-  }),
-  hypothesisId: Schema.optional(hypothesisId),
-  phase: Schema.optional(
-    Schema.String.annotations({
-      description: 'Current phase when event occurred',
-      examples: ['reproduction', 'hypothesis-generation', 'hypothesis-testing'],
-    }),
-  ),
-  metadata: Schema.optional(
+  event: EventType,
+  phase: Schema.optional(WorkflowPhase),
+  hypothesisId: Schema.optional(HypothesisId),
+  message: Schema.optional(Schema.String),
+  details: Schema.optional(
     Schema.Record({
       key: Schema.String,
       value: Schema.Unknown,
@@ -184,99 +178,45 @@ export const TimelineEvent = Schema.Struct({
   description: 'A single event in the execution timeline',
 })
 
-export type TimelineEvent = typeof TimelineEvent.Type
-
 /**
- * Complete execution timeline for a Dilagent run
+ * Complete execution timeline
  * @fileLocation .dilagent/timeline.json
  */
 export const Timeline = Schema.Struct({
-  runId: runSlug,
   createdAt: timestamp,
   events: Schema.Array(TimelineEvent),
 }).annotations({
   title: 'Timeline',
-  description: 'Complete execution timeline for a Dilagent run',
+  description: 'Complete execution timeline',
 })
 
-export type Timeline = typeof Timeline.Type
-
-// Artifact schemas (files in .dilagent/artifacts/)
-
-/**
- * Successful reproduction data
- * @fileLocation .dilagent/artifacts/reproduction.json
- */
-export const ReproductionArtifact = Schema.parseJson(Schema.Any, { space: 2 }).annotations({
-  title: 'ReproductionArtifact',
-  description: 'Successful reproduction data stored as JSON artifact',
-})
-
-/**
- * Generated hypotheses list
- * @fileLocation .dilagent/artifacts/hypotheses.json
- */
-export const HypothesesArtifact = Schema.parseJson(Schema.Array(Schema.Any), { space: 2 }).annotations({
-  title: 'HypothesesArtifact',
-  description: 'List of generated hypotheses stored as JSON artifact',
-})
-
-/**
- * Generated reproduction script
- * @fileLocation .dilagent/artifacts/repro.ts
- */
-export const ReproScript = Schema.String.annotations({
-  title: 'ReproScript',
-  description: 'Generated TypeScript reproduction script content',
-})
-
-/**
- * Overall run summary report
- * @fileLocation .dilagent/artifacts/summary.md
- */
-export const SummaryReport = Schema.String.annotations({
-  title: 'SummaryReport',
-  description: 'Markdown summary of the complete Dilagent run results',
-})
-
-/**
- * Input data for generating summary.md report
- */
+// Summary input for LLM-based summary generation
 export const SummaryInput = Schema.Struct({
-  runState: DilagentState,
-  runConfig: DilagentConfig,
+  state: DilagentState,
   timeline: Timeline,
-  reproductionResult: Schema.optional(
-    Schema.Any.annotations({
-      description: 'Reproduction result data if reproduction succeeded',
-    }),
-  ),
   executionMetrics: Schema.Struct({
     totalDurationMs: Schema.Number,
-    reproductionDurationMs: Schema.optional(Schema.Number),
-    hypothesisGenerationDurationMs: Schema.optional(Schema.Number),
-    hypothesesTestingDurationMs: Schema.optional(Schema.Number),
-  }),
-  artifactsPaths: Schema.Struct({
-    reproScript: Schema.optional(
-      Schema.String.annotations({
-        description: 'Path to repro.ts if generated',
-      }),
-    ),
-    hypothesesJson: Schema.optional(
-      Schema.String.annotations({
-        description: 'Path to hypotheses.json if generated',
-      }),
-    ),
-    reproductionJson: Schema.optional(
-      Schema.String.annotations({
-        description: 'Path to reproduction.json if generated',
-      }),
-    ),
+    wallClockTimeMs: Schema.Number,
   }),
 }).annotations({
   title: 'SummaryInput',
-  description: 'Complete input data needed to generate comprehensive summary.md report',
+  description: 'Input data for generating summary reports',
 })
 
+// Re-export common schemas for backward compatibility
+export { HypothesisId, hypothesisSlug, timestamp } from './common.ts'
+
+// Export types
+export type DilagentState = typeof DilagentState.Type
+export type HypothesisState = typeof HypothesisState.Type
+export type HypothesisStatus = typeof HypothesisStatus.Type
+export type WorkflowPhase = typeof WorkflowPhase.Type
 export type SummaryInput = typeof SummaryInput.Type
+export type Progress = typeof Progress.Type
+export type Metrics = typeof Metrics.Type
+export type Timeline = typeof Timeline.Type
+export type TimelineEvent = typeof TimelineEvent.Type
+export type EventType = typeof EventType.Type
+
+// Common types are automatically available through the schema imports above
+// No need to redeclare them since imports from common.ts already provide both value and type

@@ -1,20 +1,52 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as Path from 'node:path'
+import { FileSystem } from '@effect/platform'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
-import { Effect, Layer } from 'effect'
+import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DilagentState } from '../schemas/file-management.ts'
 import { StateStore } from './state-store.ts'
 import { WorkingDirService } from './working-dir.ts'
 
+// Helper function to create expected default state
+const createExpectedDefaultState = (workingDir: string): DilagentState => ({
+  workingDirId: expect.any(String),
+  problemPrompt: '',
+  contextDirectory: workingDir,
+  contextRelativePath: undefined,
+  workingDirectory: workingDir,
+  hypotheses: {},
+  currentPhase: 'setup',
+  completedPhases: [],
+  metrics: {
+    startTime: expect.any(String),
+    endTime: undefined,
+    hypothesesGenerated: 0,
+    hypothesesCompleted: 0,
+    hypothesesSuccessful: 0,
+    hypothesesFailed: 0,
+    hypothesesSkipped: 0,
+  },
+  progress: {
+    current: 0,
+    total: 0,
+    phase: 'setup',
+    message: 'Starting dilagent',
+  },
+})
+
 describe('StateStore', () => {
   let testDir: string
+  let runtime: ManagedRuntime.ManagedRuntime<StateStore | WorkingDirService | FileSystem.FileSystem, never>
 
   // Create test layer with all dependencies
   const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
-  const ServiceLayer = Layer.mergeAll(WorkingDirService.Default, StateStore.Default).pipe(Layer.provide(PlatformLayer))
-  const TestLayer = Layer.mergeAll(PlatformLayer, ServiceLayer)
+  const WorkingDirLayer = (testDir: string) =>
+    WorkingDirService.Default({ workingDir: testDir, create: true }).pipe(Layer.provideMerge(PlatformLayer))
+  const ServiceLayer = (testDir: string) => StateStore.Default.pipe(Layer.provideMerge(WorkingDirLayer(testDir)))
+  const TestLayer = (testDir: string) =>
+    Layer.mergeAll(PlatformLayer, WorkingDirLayer(testDir), ServiceLayer(testDir)).pipe(Layer.orDie)
 
   beforeEach(async () => {
     // Create unique test directory for each test
@@ -24,6 +56,8 @@ describe('StateStore', () => {
         else resolve(dir)
       })
     })
+
+    runtime = ManagedRuntime.make(TestLayer(testDir))
   })
 
   afterEach(async () => {
@@ -33,423 +67,206 @@ describe('StateStore', () => {
     })
   })
 
-  // Helper to create a test DilagentState
-  const createTestState = (): DilagentState => ({
-    runId: '2025-09-07-test',
-    runSlug: '2025-09-07-test',
-    contextDir: '/test/context',
-    contextType: 'directory',
-    createdAt: '2025-09-07T12:34:56Z',
-    lastUpdated: '2025-09-07T12:34:56Z',
-    currentPhase: 'reproduction',
-    phaseStartedAt: '2025-09-07T12:34:56Z',
-    reproduction: {
-      status: 'pending',
-      attempts: 0,
-      confidence: 0.0,
-    },
-    hypotheses: [
-      {
-        id: 'H001',
-        slug: 'auth-bug-fix',
-        branch: 'dilagent/2025-09-07-test/H001-auth-bug-fix',
-        worktree: 'H001-auth-bug-fix',
-        status: 'pending',
-      },
-      {
-        id: 'H002',
-        slug: 'memory-leak-fix',
-        branch: 'dilagent/2025-09-07-test/H002-memory-leak-fix',
-        worktree: 'H002-memory-leak-fix',
-        status: 'running',
-        startedAt: '2025-09-07T12:35:00Z',
-        confidence: 0.8,
-      },
-    ],
-    parallelExecution: {
-      enabled: false,
-      maxConcurrent: 1,
-      currentlyRunning: [],
-    },
-    overallProgress: {
-      totalHypotheses: 2,
-      completed: 0,
-      failed: 0,
-      remaining: 2,
-    },
-  })
-
-
-  describe('DilagentState management', () => {
-    beforeEach(async () => {
-      // Initialize .dilagent structure for DilagentState tests
-      const program = Effect.gen(function* () {
-        const workingDirService = yield* WorkingDirService
-        yield* workingDirService.initializeDilagentStructure(testDir)
-      })
-      await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-    })
-
-    describe('initializeDilagentState', () => {
-      it('should initialize with new state when no existing state file', async () => {
-        const testState = createTestState()
-
-        const program = Effect.gen(function* () {
-          const store = yield* StateStore
-
-          yield* store.initializeDilagentState(testDir, testState)
-          const retrievedState = yield* store.getDilagentState()
-
-          expect(retrievedState).toEqual(testState)
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-
-      it('should initialize from existing state file', async () => {
-        const testState = createTestState()
-
-        const program = Effect.gen(function* () {
-          const workingDirService = yield* WorkingDirService
-          const store = yield* StateStore
-
-          // First, write a state file
-          yield* workingDirService.writeState(testDir, testState)
-
-          // Then initialize StateStore - should load from file
-          yield* store.initializeDilagentState(testDir)
-          const retrievedState = yield* store.getDilagentState()
-
-          expect(retrievedState).toEqual(testState)
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-
-      it('should prefer existing state file over initial state', async () => {
-        const existingState = createTestState()
-        const initialState = { ...createTestState(), runSlug: '2025-09-07-different' }
-
-        const program = Effect.gen(function* () {
-          const workingDirService = yield* WorkingDirService
-          const store = yield* StateStore
-
-          // Write existing state to file
-          yield* workingDirService.writeState(testDir, existingState)
-
-          // Initialize with different initial state - should use existing
-          yield* store.initializeDilagentState(testDir, initialState)
-          const retrievedState = yield* store.getDilagentState()
-
-          expect(retrievedState).toEqual(existingState)
-          expect(retrievedState.runSlug).toBe('2025-09-07-test') // from existing, not initial
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-
-      it('should fail when no existing state and no initial state provided', async () => {
-        const program = Effect.gen(function* () {
-          const store = yield* StateStore
-          yield* store.initializeDilagentState(testDir) // No initial state
-        })
-
-        await expect(Effect.runPromise(program.pipe(Effect.provide(TestLayer)))).rejects.toThrow(
-          'no existing state found and no initial state provided',
-        )
-      })
-    })
-
-    describe('auto-flush functionality', () => {
-      it('should not auto-flush by default', async () => {
-        const testState = createTestState()
-
-        const program = Effect.gen(function* () {
-          const workingDirService = yield* WorkingDirService
-          const store = yield* StateStore
-
-          yield* store.initializeDilagentState(testDir, testState)
-
-          // Update state
-          yield* store.updateDilagentState((state) => ({
-            ...state,
-            currentPhase: 'hypothesis-generation',
-          }))
-
-          // File should not exist yet (no auto-flush)
-          const fileExists = yield* workingDirService.readState(testDir).pipe(
-            Effect.map(() => true),
-            Effect.catchAll(() => Effect.succeed(false)),
-          )
-
-          expect(fileExists).toBe(false)
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-
-      it('should auto-flush when enabled', async () => {
-        const testState = createTestState()
-
-        const program = Effect.gen(function* () {
-          const workingDirService = yield* WorkingDirService
-          const store = yield* StateStore
-
-          yield* store.initializeDilagentState(testDir, testState)
-          yield* store.enableAutoFlush()
-
-          // Update state - should auto-flush
-          yield* store.updateDilagentState((state) => ({
-            ...state,
-            currentPhase: 'hypothesis-generation',
-          }))
-
-          // File should exist and have updated state
-          const fileState = yield* workingDirService.readState(testDir)
-          expect(fileState.currentPhase).toBe('hypothesis-generation')
-          expect(fileState.lastUpdated).not.toBe(testState.lastUpdated) // Should be updated
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-
-      it('should stop auto-flush when disabled', async () => {
-        const testState = createTestState()
-
-        const program = Effect.gen(function* () {
-          const workingDirService = yield* WorkingDirService
-          const store = yield* StateStore
-
-          yield* store.initializeDilagentState(testDir, testState)
-          yield* store.enableAutoFlush()
-
-          // Update state - should auto-flush
-          yield* store.updateDilagentState((state) => ({
-            ...state,
-            currentPhase: 'hypothesis-generation',
-          }))
-
-          // Disable auto-flush
-          yield* store.disableAutoFlush()
-
-          // Update state again - should not auto-flush
-          yield* store.updateDilagentState((state) => ({
-            ...state,
-            currentPhase: 'hypothesis-testing',
-          }))
-
-          // File should still have the first update, not the second
-          const fileState = yield* workingDirService.readState(testDir)
-          expect(fileState.currentPhase).toBe('hypothesis-generation') // First update
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-    })
-
-    describe('manual flush', () => {
-      it('should manually flush state to file', async () => {
-        const testState = createTestState()
-
-        const program = Effect.gen(function* () {
-          const workingDirService = yield* WorkingDirService
-          const store = yield* StateStore
-
-          yield* store.initializeDilagentState(testDir, testState)
-
-          // Update state (no auto-flush)
-          yield* store.updateDilagentState((state) => ({
-            ...state,
-            currentPhase: 'hypothesis-generation',
-          }))
-
-          // Manually flush
-          yield* store.flushToFile()
-
-          // File should have updated state
-          const fileState = yield* workingDirService.readState(testDir)
-          expect(fileState.currentPhase).toBe('hypothesis-generation')
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-
-      it('should fail to flush when state not initialized', async () => {
-        const program = Effect.gen(function* () {
-          const store = yield* StateStore
-          yield* store.flushToFile()
-        })
-
-        await expect(Effect.runPromise(program.pipe(Effect.provide(TestLayer)))).rejects.toThrow(
-          'DilagentState has not been initialized',
-        )
-      })
-    })
-
-    describe('updateHypothesis', () => {
-      it('should update hypothesis status and details', async () => {
-        const testState = createTestState()
-
-        const program = Effect.gen(function* () {
-          const store = yield* StateStore
-
-          yield* store.initializeDilagentState(testDir, testState)
-
-          // Update hypothesis
-          yield* store.updateHypothesis('H001', {
-            status: 'running',
-            startedAt: '2025-09-07T13:00:00Z',
-            confidence: 0.9,
-          })
-
-          const updatedState = yield* store.getDilagentState()
-          const hypothesis = updatedState.hypotheses.find((h) => h.id === 'H001')
-
-          expect(hypothesis?.status).toBe('running')
-          expect(hypothesis?.startedAt).toBe('2025-09-07T13:00:00Z')
-          expect(hypothesis?.confidence).toBe(0.9)
-          expect(updatedState.lastUpdated).not.toBe(testState.lastUpdated)
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-
-      it('should only update specified hypothesis', async () => {
-        const testState = createTestState()
-
-        const program = Effect.gen(function* () {
-          const store = yield* StateStore
-
-          yield* store.initializeDilagentState(testDir, testState)
-
-          // Update only H001
-          yield* store.updateHypothesis('H001', { status: 'completed', result: 'proven' })
-
-          const updatedState = yield* store.getDilagentState()
-          const h001 = updatedState.hypotheses.find((h) => h.id === 'H001')
-          const h002 = updatedState.hypotheses.find((h) => h.id === 'H002')
-
-          expect(h001?.status).toBe('completed')
-          expect(h001?.result).toBe('proven')
-          expect(h002?.status).toBe('running') // Unchanged
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-    })
-
-    describe('state updates with lastUpdated', () => {
-      it('should automatically update lastUpdated timestamp', async () => {
-        const testState = createTestState()
-        const originalTimestamp = testState.lastUpdated
-
-        const program = Effect.gen(function* () {
-          const store = yield* StateStore
-
-          yield* store.initializeDilagentState(testDir, testState)
-
-          // Small delay to ensure timestamp changes - use Effect.sleep instead of await
-          yield* Effect.sleep('1 millis')
-
-          yield* store.updateDilagentState((state) => ({
-            ...state,
-            currentPhase: 'hypothesis-generation',
-          }))
-
-          const updatedState = yield* store.getDilagentState()
-          expect(updatedState.lastUpdated).not.toBe(originalTimestamp)
-          expect(new Date(updatedState.lastUpdated).getTime()).toBeGreaterThan(new Date(originalTimestamp).getTime())
-        })
-
-        await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
-      })
-    })
-
-    describe('error handling', () => {
-      it('should fail to get state when not initialized', async () => {
-        const program = Effect.gen(function* () {
-          const store = yield* StateStore
-          yield* store.getDilagentState()
-        })
-
-        await expect(Effect.runPromise(program.pipe(Effect.provide(TestLayer)))).rejects.toThrow(
-          'DilagentState has not been initialized',
-        )
-      })
-
-      it('should handle corrupt state file gracefully', async () => {
-        const _program = Effect.gen(function* () {
-          const workingDirService = yield* WorkingDirService
-
-          // Write invalid JSON to state file
-          const paths = workingDirService.getPaths(testDir)
-          yield* workingDirService.ensureDirectory(Path.dirname(paths.stateFile))
-        })
-
-        // Manually write corrupt JSON
-        const dilagentDir = Path.join(testDir, '.dilagent')
-        fs.mkdirSync(dilagentDir, { recursive: true })
-        fs.writeFileSync(Path.join(dilagentDir, 'state.json'), 'invalid json')
-
-        const program2 = Effect.gen(function* () {
-          const store = yield* StateStore
-          const initialState = createTestState()
-
-          // Should fall back to initial state when file is corrupt
-          yield* store.initializeDilagentState(testDir, initialState)
-          const state = yield* store.getDilagentState()
-
-          expect(state).toEqual(initialState)
-        })
-
-        await Effect.runPromise(program2.pipe(Effect.provide(TestLayer)))
-      })
-    })
-  })
-
-  describe('integration with WorkingDirService', () => {
-    it('should work end-to-end with directory initialization and state management', async () => {
-      const testState = createTestState()
+  describe('StateStore service', () => {
+    it('should auto-initialize with default state when no existing state file', async () => {
+      const expectedState = createExpectedDefaultState(testDir)
 
       const program = Effect.gen(function* () {
-        const workingDirService = yield* WorkingDirService
         const store = yield* StateStore
 
-        // Initialize directory structure
-        yield* workingDirService.initializeDilagentStructure(testDir)
+        const retrievedState = yield* store.getState()
 
-        // Initialize state store with auto-flush
-        yield* store.initializeDilagentState(testDir, testState)
-        yield* store.enableAutoFlush()
-
-        // Update hypothesis
-        yield* store.updateHypothesis('H001', {
-          status: 'running',
-          startedAt: '2025-09-07T13:00:00Z',
-        })
-
-        // Update overall state
-        yield* store.updateDilagentState((state) => ({
-          ...state,
-          currentPhase: 'hypothesis-testing',
-          overallProgress: {
-            ...state.overallProgress,
-            remaining: 1,
-          },
-        }))
-
-        // Verify file was written correctly
-        const fileState = yield* workingDirService.readState(testDir)
-
-        expect(fileState.currentPhase).toBe('hypothesis-testing')
-        expect(fileState.overallProgress.remaining).toBe(1)
-
-        const h001 = fileState.hypotheses.find((h) => h.id === 'H001')
-        expect(h001?.status).toBe('running')
-        expect(h001?.startedAt).toBe('2025-09-07T13:00:00Z')
+        expect(retrievedState).toEqual(expectedState)
       })
 
-      await Effect.runPromise(program.pipe(Effect.provide(TestLayer)))
+      await Effect.runPromise(program.pipe(Effect.provide(runtime)))
+    })
+
+    it('should auto-persist state changes', async () => {
+      const program = Effect.gen(function* () {
+        const store = yield* StateStore
+        const workingDir = yield* WorkingDirService
+        const fs = yield* FileSystem.FileSystem
+
+        // Update the state
+        yield* store.setPhase('hypothesis-generation')
+
+        // Verify the state was updated in memory
+        const updatedState = yield* store.getState()
+        expect(updatedState.currentPhase).toBe('hypothesis-generation')
+        expect(updatedState.completedPhases).toContain('hypothesis-generation')
+
+        // Verify the state was persisted to disk
+        const fileContent = yield* fs.readFileString(workingDir.paths.stateFile)
+        const parsedState = JSON.parse(fileContent) as DilagentState
+        expect(parsedState.currentPhase).toBe('hypothesis-generation')
+      })
+
+      await Effect.runPromise(program.pipe(Effect.provide(runtime)))
+    })
+
+    it('should register and update hypotheses', async () => {
+      const program = Effect.gen(function* () {
+        const store = yield* StateStore
+
+        // Register a hypothesis
+        yield* store.registerHypothesis({ id: 'H001', slug: 'auth-bug-fix', description: 'Fix authentication bug' })
+
+        // Update hypothesis status
+        yield* store.updateHypothesis({
+          id: 'H001',
+          update: {
+            status: 'running',
+            startedAt: '2025-09-08T12:00:00Z',
+          },
+        })
+
+        const state = yield* store.getState()
+
+        // Check hypothesis was registered
+        expect(state.hypotheses.H001).toBeDefined()
+        expect(state.hypotheses.H001!.slug).toBe('auth-bug-fix')
+        expect(state.hypotheses.H001!.description).toBe('Fix authentication bug')
+        expect(state.hypotheses.H001!.status).toBe('running')
+        expect(state.hypotheses.H001!.startedAt).toBe('2025-09-08T12:00:00Z')
+
+        // Check metrics were updated
+        expect(state.metrics.hypothesesGenerated).toBe(1)
+      })
+
+      await Effect.runPromise(program.pipe(Effect.provide(runtime)))
+    })
+
+    it('should handle multiple hypotheses independently', async () => {
+      const program = Effect.gen(function* () {
+        const store = yield* StateStore
+
+        // Register multiple hypotheses
+        yield* store.registerHypothesis({ id: 'H001', slug: 'auth-bug', description: 'Fix auth bug' })
+        yield* store.registerHypothesis({ id: 'H002', slug: 'perf-fix', description: 'Fix performance issue' })
+
+        // Update only H001
+        yield* store.updateHypothesis({
+          id: 'H001',
+          update: {
+            status: 'completed',
+            result: {
+              _tag: 'Proven' as const,
+              hypothesisId: 'H001',
+              findings: 'Auth bug fixed successfully',
+            },
+          },
+        })
+
+        const state = yield* store.getState()
+
+        // H001 should be updated
+        expect(state.hypotheses.H001!.status).toBe('completed')
+        expect(state.hypotheses.H001!.result?._tag).toBe('Proven')
+
+        // H002 should remain unchanged
+        expect(state.hypotheses.H002!.status).toBe('pending')
+        expect(state.hypotheses.H002!.result).toBeUndefined()
+
+        // Metrics should reflect the updates
+        expect(state.metrics.hypothesesGenerated).toBe(2)
+        expect(state.metrics.hypothesesCompleted).toBe(1)
+        expect(state.metrics.hypothesesSuccessful).toBe(1)
+      })
+
+      await Effect.runPromise(program.pipe(Effect.provide(runtime)))
+    })
+
+    it('should load existing state from file on initialization', async () => {
+      // Pre-create a state file
+      const existingState: DilagentState = {
+        workingDirId: '550e8400-e29b-41d4-a716-446655440000',
+        problemPrompt: 'Existing problem description',
+        contextDirectory: testDir,
+        contextRelativePath: undefined,
+        workingDirectory: testDir,
+        hypotheses: {
+          H001: {
+            id: 'H001',
+            slug: 'existing-hyp',
+            description: 'Existing hypothesis',
+            status: 'running',
+            worktreePath: Path.join(testDir, 'H001-existing-hyp'),
+            branchName: 'dilagent/550e8400-e29b-41d4-a716-446655440000/H001-existing-hyp',
+            startedAt: '2025-09-08T10:00:00Z',
+            completedAt: undefined,
+            result: undefined,
+          },
+        },
+        currentPhase: 'hypothesis-testing',
+        completedPhases: ['setup', 'hypothesis-generation'],
+        metrics: {
+          startTime: '2025-09-08T09:00:00Z',
+          endTime: undefined,
+          hypothesesGenerated: 1,
+          hypothesesCompleted: 0,
+          hypothesesSuccessful: 0,
+          hypothesesFailed: 0,
+          hypothesesSkipped: 0,
+        },
+        progress: {
+          current: 1,
+          total: 2,
+          phase: 'hypothesis-testing',
+          message: 'Testing hypothesis H001',
+        },
+      }
+
+      // Write the state file before service initialization
+      const dilagentDir = Path.join(testDir, '.dilagent')
+      fs.mkdirSync(dilagentDir, { recursive: true })
+      fs.writeFileSync(Path.join(dilagentDir, 'state.json'), JSON.stringify(existingState))
+
+      const program = Effect.gen(function* () {
+        const store = yield* StateStore
+        const loadedState = yield* store.getState()
+
+        expect(loadedState.currentPhase).toBe('hypothesis-testing')
+        expect(loadedState.hypotheses.H001!.slug).toBe('existing-hyp')
+        expect(loadedState.metrics.hypothesesGenerated).toBe(1)
+      })
+
+      await Effect.runPromise(program.pipe(Effect.provide(runtime)))
+    })
+
+    it('should handle state updates with progress tracking', async () => {
+      const program = Effect.gen(function* () {
+        const store = yield* StateStore
+
+        // Update progress
+        yield* store.updateProgress({
+          current: 3,
+          total: 10,
+          message: 'Processing hypothesis tests',
+        })
+
+        const state = yield* store.getState()
+        expect(state.progress.current).toBe(3)
+        expect(state.progress.total).toBe(10)
+        expect(state.progress.message).toBe('Processing hypothesis tests')
+      })
+
+      await Effect.runPromise(program.pipe(Effect.provide(runtime)))
+    })
+
+    it('should complete the run and update metrics', async () => {
+      const program = Effect.gen(function* () {
+        const store = yield* StateStore
+
+        // Complete the run
+        yield* store.completeRun()
+
+        const state = yield* store.getState()
+        expect(state.currentPhase).toBe('completed')
+        expect(state.metrics.endTime).toBeDefined()
+      })
+
+      await Effect.runPromise(program.pipe(Effect.provide(runtime)))
     })
   })
 })

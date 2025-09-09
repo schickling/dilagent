@@ -1,6 +1,7 @@
+import { FileSystem } from '@effect/platform'
 import { Effect, Ref, Schema } from 'effect'
 import type { Timeline, TimelineEvent } from '../schemas/file-management.ts'
-import { TimelineEvent as TimelineEventSchema } from '../schemas/file-management.ts'
+import { TimelineEvent as TimelineEventSchema, Timeline as TimelineSchema } from '../schemas/file-management.ts'
 import { WorkingDirService } from './working-dir.ts'
 
 // Error types for TimelineService
@@ -20,95 +21,64 @@ export class TimelinePersistenceError extends Schema.TaggedError<TimelinePersist
 ) {}
 
 /**
- * Service for managing timeline events and persistence
+ * Service for managing timeline events
  *
- * Features:
- * - Event recording with automatic timestamp generation
- * - Event filtering by phase and hypothesis ID
- * - Auto-persistence to .dilagent/timeline.json
- * - Thread-safe concurrent event recording
+ * Responsibilities:
+ * - Owns the complete timeline lifecycle
+ * - Reads existing timeline OR creates new on initialization
+ * - Auto-persists all new events
+ * - Provides filtering and statistics
  */
 export class TimelineService extends Effect.Service<TimelineService>()('TimelineService', {
-  effect: (
-    /**
-     * Run ID for the timeline
-     */
-    runId: string,
-  ) =>
-    Effect.gen(function* () {
-      const workingDirService = yield* WorkingDirService
+  effect: Effect.gen(function* () {
+    const workingDir = yield* WorkingDirService
+    const fs = yield* FileSystem.FileSystem
 
-      yield* Effect.annotateCurrentSpan({ runId })
+    // Read existing timeline or create new - happens ONCE during init
+    const initialTimeline = yield* fs.readFileString(workingDir.paths.timelineFile).pipe(
+      Effect.flatMap((content) => Schema.decodeUnknown(Schema.parseJson(TimelineSchema))(content)),
+      Effect.catchAll(
+        Effect.fn(function* () {
+          yield* Effect.logDebug('[TimelineService] No existing timeline found, creating new').pipe(Effect.ignore)
+          return {
+            createdAt: new Date().toISOString(),
+            events: [],
+          } as Timeline
+        }),
+      ),
+    )
 
-      // Try to load existing timeline
-      const existingTimeline = yield* workingDirService.readTimeline().pipe(
-        Effect.catchAll((error) =>
-          Effect.gen(function* () {
-            yield* Effect.log(`No existing timeline found, creating new: ${error.message}`)
-            return undefined
-          }),
+    // Internal mutable reference
+    const timelineRef = yield* Ref.make(initialTimeline)
+
+    // Helper to persist current timeline
+    const persist = Effect.gen(function* () {
+      const currentTimeline = yield* Ref.get(timelineRef)
+      const encoded = yield* Schema.encode(Schema.parseJson(TimelineSchema, { space: 2 }))(currentTimeline)
+      yield* fs.writeFileString(workingDir.paths.timelineFile, encoded).pipe(
+        Effect.catchAll(
+          (error) =>
+            new TimelinePersistenceError({
+              cause: error,
+              message: 'Failed to persist timeline to file',
+              timelineFile: workingDir.paths.timelineFile,
+            }),
         ),
       )
+      // yield* Effect.logDebug('[TimelineService] Timeline persisted')
+    })
 
-      const timelineToUse =
-        existingTimeline ??
-        ({
-          runId,
-          createdAt: new Date().toISOString(),
-          events: [],
-        } as Timeline)
+    // Public API
+    const getTimeline = () => Ref.get(timelineRef)
 
-      // In-memory timeline state
-      const autoPersistEnabled = yield* Ref.make<boolean>(false)
-      const timelineStore = yield* Ref.make<Timeline>(timelineToUse)
-
-      yield* Effect.log(`Initialized timeline ${existingTimeline ? 'from file' : 'as new'}`)
-
-      /**
-       * Enable auto-persist - timeline will be written to file on every event
-       *
-       * @returns Effect that succeeds when auto-persist is enabled
-       */
-      const enableAutoPersist = Effect.fn('TimelineService.enableAutoPersist')(function* () {
-        yield* Ref.set(autoPersistEnabled, true)
-        yield* Effect.log('Auto-persist enabled for Timeline')
-      })
-
-      /**
-       * Disable auto-persist
-       *
-       * @returns Effect that succeeds when auto-persist is disabled
-       */
-      const disableAutoPersist = Effect.fn('TimelineService.disableAutoPersist')(function* () {
-        yield* Ref.set(autoPersistEnabled, false)
-        yield* Effect.log('Auto-persist disabled for Timeline')
-      })
-
-      /**
-       * Get current timeline
-       *
-       * @returns Effect that succeeds with current timeline
-       */
-      const getTimeline = Effect.fn('TimelineService.getTimeline')(function* () {
-        return yield* Ref.get(timelineStore)
-      })
-
-      /**
-       * Record a new event in the timeline
-       *
-       * @param event - Event data (timestamp will be added automatically)
-       * @returns Effect that succeeds when event is recorded
-       */
-      const recordEvent = Effect.fn('TimelineService.recordEvent')(function* (event: Omit<TimelineEvent, 'timestamp'>) {
-        yield* Effect.annotateCurrentSpan({ event: event.event, hypothesisId: event.hypothesisId })
-
-        const timestamp = new Date().toISOString()
+    const recordEvent = (event: Omit<TimelineEvent, 'timestamp'>) =>
+      Effect.gen(function* () {
         const fullEvent: TimelineEvent = {
           ...event,
-          timestamp,
+          timestamp: new Date().toISOString(),
         }
 
-        // Validate event structure
+        // Validate event
         const validatedEvent = yield* Schema.decodeUnknown(TimelineEventSchema)(fullEvent).pipe(
           Effect.catchAll(
             (error) =>
@@ -120,88 +90,39 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
           ),
         )
 
-        // Update timeline with new event
-        yield* Ref.update(timelineStore, (timeline) => {
-          if (!timeline) {
-            throw new Error('Timeline not initialized')
-          }
-          return {
-            ...timeline,
-            events: [...timeline.events, validatedEvent],
-          }
+        // Update timeline
+        yield* Ref.updateAndGet(timelineRef, (timeline) => ({
+          ...timeline,
+          events: [...timeline.events, validatedEvent],
+        }))
+
+        // Auto-persist
+        yield* persist
+
+        yield* Effect.logDebug(`[TimelineService] Recorded event: ${event.event}`)
+        return validatedEvent
+      })
+
+    const getEvents = (filter?: { phase?: string; hypothesisId?: string }) =>
+      Effect.gen(function* () {
+        const timeline = yield* getTimeline()
+
+        if (!filter) return timeline.events
+
+        return timeline.events.filter((event) => {
+          if (filter.phase && event.phase !== filter.phase) return false
+          if (filter.hypothesisId && event.hypothesisId !== filter.hypothesisId) return false
+          return true
         })
-
-        // Auto-persist if enabled
-        const shouldAutoPersist = yield* Ref.get(autoPersistEnabled)
-        if (shouldAutoPersist) {
-          yield* persistToFile()
-        }
-
-        yield* Effect.log(`Recorded event: ${event.event}`)
       })
 
-      /**
-       * Get filtered events from the timeline
-       *
-       * @param filter - Optional filter criteria
-       * @returns Effect that succeeds with filtered events
-       */
-      const getEvents = Effect.fn('TimelineService.getEvents')(function* (filter?: {
-        phase?: string
-        hypothesisId?: string
-      }) {
-        const timeline = yield* getTimeline()
-
-        let filteredEvents = timeline.events
-
-        if (filter?.phase) {
-          filteredEvents = filteredEvents.filter((event) => event.phase === filter.phase)
-        }
-
-        if (filter?.hypothesisId) {
-          filteredEvents = filteredEvents.filter((event) => event.hypothesisId === filter.hypothesisId)
-        }
-
-        return filteredEvents
-      })
-
-      /**
-       * Manually persist current timeline to file
-       *
-       * @returns Effect that succeeds when timeline is persisted
-       */
-      const persistToFile = Effect.fn('TimelineService.persistToFile')(function* () {
-        const timeline = yield* getTimeline()
-
-        const timelineFile = workingDirService.paths.timelineFile
-
-        yield* workingDirService.writeTimeline(timeline).pipe(
-          Effect.catchAll(
-            (error) =>
-              new TimelinePersistenceError({
-                cause: error,
-                message: `Failed to persist timeline to file`,
-                timelineFile,
-              }),
-          ),
-        )
-
-        yield* Effect.log(`Persisted timeline to ${timelineFile}`)
-      })
-
-      /**
-       * Get timeline statistics
-       *
-       * @returns Effect that succeeds with timeline statistics
-       */
-      const getStatistics = Effect.fn('TimelineService.getStatistics')(function* () {
+    const getStatistics = () =>
+      Effect.gen(function* () {
         const timeline = yield* getTimeline()
 
         const eventsByPhase = timeline.events.reduce(
           (acc, event) => {
-            if (event.phase) {
-              acc[event.phase] = (acc[event.phase] || 0) + 1
-            }
+            if (event.phase) acc[event.phase] = (acc[event.phase] || 0) + 1
             return acc
           },
           {} as Record<string, number>,
@@ -209,9 +130,7 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
 
         const eventsByHypothesis = timeline.events.reduce(
           (acc, event) => {
-            if (event.hypothesisId) {
-              acc[event.hypothesisId] = (acc[event.hypothesisId] || 0) + 1
-            }
+            if (event.hypothesisId) acc[event.hypothesisId] = (acc[event.hypothesisId] || 0) + 1
             return acc
           },
           {} as Record<string, number>,
@@ -221,17 +140,14 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
           totalEvents: timeline.events.length,
           eventsByPhase,
           eventsByHypothesis,
+          createdAt: timeline.createdAt,
           firstEvent: timeline.events[0]?.timestamp,
           lastEvent: timeline.events[timeline.events.length - 1]?.timestamp,
         }
       })
 
-      /**
-       * Generate a summary report of the timeline for documentation
-       *
-       * @returns Markdown-formatted summary of timeline events and statistics
-       */
-      const generateTimelineSummary = Effect.fn('TimelineService.generateTimelineSummary')(function* () {
+    const generateSummary = () =>
+      Effect.gen(function* () {
         const timeline = yield* getTimeline()
         const stats = yield* getStatistics()
 
@@ -286,30 +202,27 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
 
           lines.push(eventLine)
 
-          // Add metadata if present
-          if (event.metadata && Object.keys(event.metadata).length > 0) {
-            const metadataEntries = Object.entries(event.metadata).map(([key, value]) => {
+          // Add details if present
+          if (event.details && Object.keys(event.details).length > 0) {
+            const detailEntries = Object.entries(event.details).map(([key, value]) => {
               if (key === 'executionTimeMs') {
                 return `${key}: ${value}ms`
               }
               return `${key}: ${JSON.stringify(value)}`
             })
-            lines.push(`  - ${metadataEntries.join(', ')}`)
+            lines.push(`  - ${detailEntries.join(', ')}`)
           }
         }
 
         return lines.join('\n')
       })
 
-      return {
-        enableAutoPersist,
-        disableAutoPersist,
-        getTimeline,
-        recordEvent,
-        getEvents,
-        persistToFile,
-        getStatistics,
-        generateTimelineSummary,
-      } as const
-    }),
+    return {
+      getTimeline,
+      recordEvent,
+      getEvents,
+      getStatistics,
+      generateSummary,
+    } as const
+  }),
 }) {}

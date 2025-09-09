@@ -17,7 +17,6 @@ Dilagent manages a structured file hierarchy for hypothesis-driven debugging usi
 ```
 working-dir/
 ├── .dilagent/                          # Centralized metadata and visibility
-│   ├── config.json                     # Run configuration
 │   ├── state.json                      # Live state (auto-flushed from state store)
 │   ├── timeline.json                   # Execution timeline and milestones
 │   │
@@ -36,7 +35,7 @@ working-dir/
 │   │   ├── repro.ts                    # Generated reproduction script
 │   │   └── summary.md                  # Overall run summary
 │   │
-│   └── H{NNN}/                         # Hypothesis metadata
+│   └── H{NNN}-{hypothesis-slug}/       # Hypothesis metadata
 │       ├── hypothesis.log              # Hypothesis-specific execution log
 │       ├── context.md                  # Problem context for this hypothesis
 │       ├── instructions.md             # Hypothesis-specific instructions
@@ -67,7 +66,8 @@ working-dir/
 
 ### Directory and Branch Naming
 - **Worktree Directories**: `worktree-H{NNN}-{hypothesis-slug}`
-- **Branch Names**: `dilagent/{run-slug}/H{NNN}-{hypothesis-slug}`
+- **Branch Names**: `dilagent/{problem-slug}/H{NNN}-{hypothesis-slug}`
+  - `{problem-slug}` is only used for branch names and derived from the problem title
 - **Examples**:
   - Directory: `worktree-H001-race-condition-state-updates`
   - Branch: `dilagent/2025-09-07-auth-bug/H001-race-condition-state-updates`
@@ -81,14 +81,35 @@ working-dir/
 
 **IMPORTANT**: The original context-dir must never be modified. All Dilagent operations happen in git worktrees to preserve the original directory state.
 
-**If context-dir is already a git repo:**
+**If context-dir is at the root of a git repo:**
 ```bash
 # Create worktree at .dilagent/context-repo with new root branch (original repo untouched)
 cd <context-dir>
-git worktree add -b dilagent/${RUN_SLUG}/root <working-dir>/.dilagent/context-repo HEAD
+git worktree add -b dilagent/${WORKING_DIR_ID}/main <working-dir>/.dilagent/context-repo HEAD
 
 # Original context-dir remains on its current branch, completely unchanged
 # .dilagent/context-repo is now a valid git worktree on the root branch
+```
+
+**If context-dir is a subdirectory within a git repo:**
+```bash
+# Example: context-dir is /path/to/monorepo/apps/backend
+# Git root is /path/to/monorepo
+# Relative path is apps/backend
+
+# Find git root and calculate relative path
+git_root=$(git -C <context-dir> rev-parse --show-toplevel)
+relative_path=$(realpath --relative-to="$git_root" <context-dir>)
+
+# Create worktree from git root (contains entire repo)
+cd "$git_root"
+git worktree add -b dilagent/${WORKING_DIR_ID}/main <working-dir>/.dilagent/context-repo HEAD
+
+# Store relative path information for prompts and reproduction:
+# - Relative path: apps/backend 
+# - This tells the system which subdirectory to focus on
+# - Commands should be run from the subdirectory when relevant
+# - File paths in prompts are relative to this subdirectory
 ```
 
 **If context-dir is a normal directory:**
@@ -103,29 +124,32 @@ git add .
 git commit -m "Initial context snapshot for Dilagent run ${RUN_SLUG}"
 
 # Create root branch (this directory is already our working copy)
-git checkout -b dilagent/${RUN_SLUG}/root
+git checkout -b dilagent/${WORKING_DIR_ID}/main
 
 # .dilagent/context-repo is now a valid git repo on the root branch
+# Relative path is "." (context directory is the root of the new git repo)
 ```
 
 ### Worktree Creation
 
 For each hypothesis:
 ```bash
-# Always use .dilagent/context-repo - it's guaranteed to exist and be on root branch
+# Always use .dilagent/context-repo - it's guaranteed to exist and be on main branch
 cd <working-dir>/.dilagent/context-repo
 
-# Create hypothesis worktree branching from the current branch (root)
-git worktree add -b dilagent/${RUN_SLUG}/H${NNN}-${HYPOTHESIS_SLUG} \
-  ../worktree-H${NNN}-${HYPOTHESIS_SLUG} \
+# Create hypothesis worktree branching from the current branch (main)
+git worktree add -b dilagent/${WORKING_DIR_ID}/H${NNN}-${HYPOTHESIS_SLUG} \
+  ../H${NNN}-${HYPOTHESIS_SLUG} \
   HEAD
 ```
 
 **Key Points:**
 - `.dilagent/context-repo` is ALWAYS the source for worktrees (consistent approach)
-- All hypothesis branches originate from `dilagent/${RUN_SLUG}/root`
+- All hypothesis branches originate from `dilagent/${WORKING_DIR_ID}/main`
 - Original context-dir is never switched or modified
 - Each hypothesis gets an isolated worktree with its own branch
+- If context was a subdirectory within a git repo, the relative path is stored in state
+- Hypothesis workers receive the relative path to focus on the correct subdirectory
 - No path lookups or conditionals needed
 
 ## Schemas & Data Structure
@@ -133,8 +157,7 @@ git worktree add -b dilagent/${RUN_SLUG}/H${NNN}-${HYPOTHESIS_SLUG} \
 All JSON files are backed by comprehensive TypeScript schemas in `apps/dilagent-cli/src/schemas/file-management.ts`:
 
 ### Core Schemas
-- **`DilagentState`** → `.dilagent/state.json` - Complete run state with all hypothesis status, results, and progress (single source of truth)
-- **`DilagentConfig`** → `.dilagent/config.json` - Run configuration and settings
+- **`DilagentState`** → `.dilagent/state.json` - Complete run state with all hypothesis status, results, and progress (single source of truth). Includes `contextRelativePath` field to track which subdirectory of a git repo to focus on.
 - **`Timeline`** → `.dilagent/timeline.json` - Centralized execution timeline for all events
 
 ### Shared Types
@@ -162,7 +185,7 @@ The schemas eliminate redundancy through shared types and centralize all hypothe
 ### Status Monitoring
 - **Centralized state**: All hypothesis status, results, and progress in `.dilagent/state.json` 
 - **State updates**: Auto-flushed on each state store change (real-time)
-- **Timeline tracking**: `.dilagent/timeline.json` for all execution events (run-level and hypothesis-level)
+- **Timeline tracking**: `.dilagent/timeline.json` for all execution events (problem-level and hypothesis-level)
 - **Progress indicators**: Available through `state.json` hypothesis entries
 - **Error aggregation**: Centralized in logs and timeline events
 
@@ -179,5 +202,5 @@ All hypothesis information is centralized in `.dilagent/state.json` including:
 - [ ] **Implement state store auto-flush mechanism** to automatically sync in-memory state to `.dilagent/state.json` on each change
 - [ ] **Build parallel hypothesis execution coordinator** with proper resource management
 - [ ] **Implement run slug generation** with date and optional context slugging (YYYY-MM-DD format)
-- [ ] **Create centralized Timeline Effect service** for consistent event tracking across all code (run-level and hypothesis-level events)
+- [ ] **Create centralized Timeline Effect service** for consistent event tracking across all code (problem-level and hypothesis-level events)
 

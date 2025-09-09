@@ -9,7 +9,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as Path from 'node:path'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
-import { Effect, Layer, ManagedRuntime } from 'effect'
+import { Effect, Layer, ManagedRuntime, Record } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type CompleterStore, createCompleter, parseCommand } from './repl.ts'
 import { StateStore } from './services/state-store.ts'
@@ -20,8 +20,8 @@ const createTestCompleter = (store: StateStore) => {
   const completerAdapter: CompleterStore = {
     keys: () =>
       Effect.gen(function* () {
-        const state = yield* store.getDilagentState()
-        return state.hypotheses.map((h) => h.id)
+        const state = yield* store.getState()
+        return Record.keys(state.hypotheses)
       }),
   }
   return createCompleter(completerAdapter)
@@ -40,9 +40,10 @@ describe('REPL', () => {
     })
     // Create StateStore instance for testing using ManagedRuntime with FileSystem dependency
     const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
-    const ServiceLayer = Layer.provide(StateStore.Default, WorkingDirService.Default(testDir)).pipe(
-      Layer.provide(PlatformLayer),
-    )
+    const ServiceLayer = Layer.provide(
+      StateStore.Default,
+      WorkingDirService.Default({ workingDir: testDir, create: true }),
+    ).pipe(Layer.provide(PlatformLayer))
     const TestLayer = Layer.mergeAll(PlatformLayer, ServiceLayer)
 
     runtime = ManagedRuntime.make(TestLayer.pipe(Layer.orDie))

@@ -1,19 +1,20 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as Path from 'node:path'
+import { FileSystem } from '@effect/platform'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
-import { Effect, Layer, ManagedRuntime } from 'effect'
+import { Effect, Layer, ManagedRuntime, Schema } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Timeline } from '../schemas/file-management.ts'
+import { Timeline as TimelineSchema } from '../schemas/file-management.ts'
 import { TimelineService } from './timeline.ts'
 import { WorkingDirService } from './working-dir.ts'
 
 describe('TimelineService', () => {
   let testDir: string
-  const runId = '2025-09-07-test'
 
   // Create test layer with all dependencies
-  let runtime: ManagedRuntime.ManagedRuntime<TimelineService | WorkingDirService, never>
+  let runtime: ManagedRuntime.ManagedRuntime<TimelineService | WorkingDirService | FileSystem.FileSystem, never>
 
   beforeEach(async () => {
     // Create unique test directory for each test
@@ -25,10 +26,11 @@ describe('TimelineService', () => {
     })
 
     const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
-    const ServiceLayer = Layer.mergeAll(
-      TimelineService.Default(runId).pipe(Layer.provideMerge(WorkingDirService.Default(testDir))),
-    ).pipe(Layer.provide(PlatformLayer))
-    const TestLayer = Layer.mergeAll(PlatformLayer, ServiceLayer).pipe(Layer.orDie)
+    const WorkingDirLayer = WorkingDirService.Default({ workingDir: testDir, create: true }).pipe(
+      Layer.provideMerge(PlatformLayer),
+    )
+    const ServiceLayer = TimelineService.Default.pipe(Layer.provideMerge(WorkingDirLayer))
+    const TestLayer = Layer.mergeAll(PlatformLayer, WorkingDirLayer, ServiceLayer).pipe(Layer.orDie)
 
     runtime = ManagedRuntime.make(TestLayer)
   })
@@ -42,17 +44,16 @@ describe('TimelineService', () => {
 
   // Helper to create test timeline
   const createTestTimeline = (): Timeline => ({
-    runId,
     createdAt: '2025-09-07T12:34:56Z',
     events: [
       {
         timestamp: '2025-09-07T12:35:00Z',
-        event: 'Reproduction started',
-        phase: 'reproduction',
+        event: 'phase.started',
+        phase: 'setup',
       },
       {
         timestamp: '2025-09-07T12:36:00Z',
-        event: 'Hypothesis H001 started',
+        event: 'hypothesis.started',
         hypothesisId: 'H001',
         phase: 'hypothesis-testing',
       },
@@ -67,7 +68,8 @@ describe('TimelineService', () => {
         // Initialize timeline
         const timeline = yield* timelineService.getTimeline()
 
-        expect(timeline.runId).toBe(runId)
+        // Timeline no longer has runId
+        expect(timeline.events).toEqual([])
         expect(timeline.events).toEqual([])
         expect(timeline.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/) // ISO timestamp
       })
@@ -78,34 +80,24 @@ describe('TimelineService', () => {
     it('should initialize from existing timeline file', async () => {
       const existingTimeline = createTestTimeline()
 
+      // Pre-create the timeline file before initializing services
+      const dilagentDir = Path.join(testDir, '.dilagent')
+      fs.mkdirSync(dilagentDir, { recursive: true })
+      const timelineFilePath = Path.join(dilagentDir, 'timeline.json')
+      fs.writeFileSync(timelineFilePath, JSON.stringify(existingTimeline))
+
       const program = Effect.gen(function* () {
         const timelineService = yield* TimelineService
-        const workingDirService = yield* WorkingDirService
 
-        // Initialize .dilagent structure
-
-        // Write existing timeline
-        yield* workingDirService.writeTimeline(existingTimeline)
-
-        // Initialize timeline - should load from file
+        // Get timeline - TimelineService should have loaded from file during initialization
         const timeline = yield* timelineService.getTimeline()
 
-        expect(timeline).toEqual(existingTimeline)
-        expect(timeline.runId).toBe('2025-09-07-test') // From existing file, not parameter
+        // Timeline loaded from file should match existing timeline events and creation time
+        expect(timeline.createdAt).toBe(existingTimeline.createdAt)
+        expect(timeline.events).toEqual(existingTimeline.events)
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
-    })
-
-    it('should fail to get timeline when not initialized', async () => {
-      const program = Effect.gen(function* () {
-        const timelineService = yield* TimelineService
-        yield* timelineService.getTimeline()
-      })
-
-      await expect(Effect.runPromise(program.pipe(Effect.provide(runtime)))).rejects.toThrow(
-        'Timeline has not been initialized',
-      )
     })
   })
 
@@ -118,8 +110,8 @@ describe('TimelineService', () => {
 
         // Record an event
         yield* timelineService.recordEvent({
-          event: 'Test event occurred',
-          phase: 'testing',
+          event: 'hypothesis.started',
+          phase: 'hypothesis-testing',
           hypothesisId: 'H001',
         })
 
@@ -127,8 +119,8 @@ describe('TimelineService', () => {
         expect(timeline.events).toHaveLength(1)
 
         const event = timeline.events[0]!
-        expect(event.event).toBe('Test event occurred')
-        expect(event.phase).toBe('testing')
+        expect(event.event).toBe('hypothesis.started')
+        expect(event.phase).toBe('hypothesis-testing')
         expect(event.hypothesisId).toBe('H001')
         expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/)
         expect(new Date(event.timestamp).getTime()).toBeGreaterThanOrEqual(new Date(beforeRecord).getTime())
@@ -142,26 +134,34 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Record multiple events
-        yield* timelineService.recordEvent({ event: 'First event' })
+        yield* timelineService.recordEvent({ event: 'phase.started', phase: 'setup' })
         yield* timelineService.recordEvent({
-          event: 'Second event',
-          phase: 'testing',
+          event: 'hypothesis.started',
+          phase: 'hypothesis-testing',
           hypothesisId: 'H001',
         })
         yield* timelineService.recordEvent({
-          event: 'Third event',
-          metadata: { key1: 'value1', key2: 42 },
+          event: 'hypothesis.completed',
+          phase: 'hypothesis-testing',
+        })
+
+        // Record event with details instead of metadata
+        yield* timelineService.recordEvent({
+          event: 'system.initialized',
+          phase: 'setup',
+          details: { key1: 'value1', key2: 42 },
         })
 
         const timeline = yield* timelineService.getTimeline()
-        expect(timeline.events).toHaveLength(3)
+        expect(timeline.events).toHaveLength(4)
 
-        expect(timeline.events[0]!.event).toBe('First event')
-        expect(timeline.events[1]!.event).toBe('Second event')
-        expect(timeline.events[1]!.phase).toBe('testing')
+        expect(timeline.events[0]!.event).toBe('phase.started')
+        expect(timeline.events[1]!.event).toBe('hypothesis.started')
+        expect(timeline.events[1]!.phase).toBe('hypothesis-testing')
         expect(timeline.events[1]!.hypothesisId).toBe('H001')
-        expect(timeline.events[2]!.event).toBe('Third event')
-        expect(timeline.events[2]!.metadata).toEqual({ key1: 'value1', key2: 42 })
+        expect(timeline.events[2]!.event).toBe('hypothesis.completed')
+        expect(timeline.events[3]!.event).toBe('system.initialized')
+        expect(timeline.events[3]!.details).toEqual({ key1: 'value1', key2: 42 })
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
@@ -172,10 +172,10 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Try to record an invalid event (event field as number instead of string)
-        yield* timelineService.recordEvent({ event: 123 as any })
+        yield* timelineService.recordEvent({ event: 123 as any, phase: 'setup' })
       })
 
-      await expect(Effect.runPromise(program.pipe(Effect.provide(runtime)))).rejects.toThrow('Invalid event structure')
+      await expect(Effect.runPromise(program.pipe(Effect.provide(runtime)))).rejects.toThrow()
     })
   })
 
@@ -186,32 +186,32 @@ describe('TimelineService', () => {
 
         // Record events in different phases
         yield* timelineService.recordEvent({
-          event: 'Reproduction started',
-          phase: 'reproduction',
+          event: 'phase.started',
+          phase: 'setup',
         })
         yield* timelineService.recordEvent({
-          event: 'Hypothesis generated',
+          event: 'hypothesis.started',
           phase: 'hypothesis-generation',
         })
         yield* timelineService.recordEvent({
-          event: 'Hypothesis tested',
+          event: 'hypothesis.started',
           phase: 'hypothesis-testing',
         })
         yield* timelineService.recordEvent({
-          event: 'Another reproduction event',
-          phase: 'reproduction',
+          event: 'phase.started',
+          phase: 'setup',
         })
 
         // Filter by phase
-        const reproductionEvents = yield* timelineService.getEvents({ phase: 'reproduction' })
+        const setupEvents = yield* timelineService.getEvents({ phase: 'setup' })
         const hypothesisEvents = yield* timelineService.getEvents({ phase: 'hypothesis-generation' })
 
-        expect(reproductionEvents).toHaveLength(2)
-        expect(reproductionEvents[0]!.event).toBe('Reproduction started')
-        expect(reproductionEvents[1]!.event).toBe('Another reproduction event')
+        expect(setupEvents).toHaveLength(2)
+        expect(setupEvents[0]!.event).toBe('phase.started')
+        expect(setupEvents[1]!.event).toBe('phase.started')
 
         expect(hypothesisEvents).toHaveLength(1)
-        expect(hypothesisEvents[0]!.event).toBe('Hypothesis generated')
+        expect(hypothesisEvents[0]!.event).toBe('hypothesis.started')
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
@@ -223,22 +223,23 @@ describe('TimelineService', () => {
 
         // Record events for different hypotheses
         yield* timelineService.recordEvent({
-          event: 'H001 started',
+          event: 'hypothesis.started',
           hypothesisId: 'H001',
           phase: 'hypothesis-testing',
         })
         yield* timelineService.recordEvent({
-          event: 'H002 started',
+          event: 'hypothesis.started',
           hypothesisId: 'H002',
           phase: 'hypothesis-testing',
         })
         yield* timelineService.recordEvent({
-          event: 'H001 completed',
+          event: 'hypothesis.completed',
           hypothesisId: 'H001',
           phase: 'hypothesis-testing',
         })
         yield* timelineService.recordEvent({
-          event: 'General event',
+          event: 'system.initialized',
+          phase: 'setup',
         })
 
         // Filter by hypothesis ID
@@ -246,11 +247,11 @@ describe('TimelineService', () => {
         const h002Events = yield* timelineService.getEvents({ hypothesisId: 'H002' })
 
         expect(h001Events).toHaveLength(2)
-        expect(h001Events[0]!.event).toBe('H001 started')
-        expect(h001Events[1]!.event).toBe('H001 completed')
+        expect(h001Events[0]!.event).toBe('hypothesis.started')
+        expect(h001Events[1]!.event).toBe('hypothesis.completed')
 
         expect(h002Events).toHaveLength(1)
-        expect(h002Events[0]!.event).toBe('H002 started')
+        expect(h002Events[0]!.event).toBe('hypothesis.started')
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
@@ -262,17 +263,17 @@ describe('TimelineService', () => {
 
         // Record events
         yield* timelineService.recordEvent({
-          event: 'H001 testing started',
+          event: 'hypothesis.started',
           hypothesisId: 'H001',
           phase: 'hypothesis-testing',
         })
         yield* timelineService.recordEvent({
-          event: 'H001 generation event',
+          event: 'hypothesis.started',
           hypothesisId: 'H001',
           phase: 'hypothesis-generation',
         })
         yield* timelineService.recordEvent({
-          event: 'H002 testing started',
+          event: 'hypothesis.started',
           hypothesisId: 'H002',
           phase: 'hypothesis-testing',
         })
@@ -284,7 +285,7 @@ describe('TimelineService', () => {
         })
 
         expect(filteredEvents).toHaveLength(1)
-        expect(filteredEvents[0]!.event).toBe('H001 testing started')
+        expect(filteredEvents[0]!.event).toBe('hypothesis.started')
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
@@ -292,103 +293,98 @@ describe('TimelineService', () => {
   })
 
   describe('Auto-persistence', () => {
-    it('should not auto-persist by default', async () => {
+    it('should auto-persist by default', async () => {
       const program = Effect.gen(function* () {
         const timelineService = yield* TimelineService
         const workingDirService = yield* WorkingDirService
+        const fs = yield* FileSystem.FileSystem
 
         // Record an event
-        yield* timelineService.recordEvent({ event: 'Test event' })
+        yield* timelineService.recordEvent({ event: 'system.initialized', phase: 'setup' })
 
-        // File should not exist yet (no auto-persist)
-        const fileExists = yield* workingDirService.readTimeline().pipe(
-          Effect.map(() => true),
-          Effect.catchAll(() => Effect.succeed(false)),
-        )
-
-        expect(fileExists).toBe(false)
+        // File should exist due to auto-persistence in TimelineService
+        const fileExists = yield* fs.exists(workingDirService.paths.timelineFile)
+        expect(fileExists).toBe(true)
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
     })
 
-    it('should auto-persist when enabled', async () => {
+    it('should auto-persist all events', async () => {
       const program = Effect.gen(function* () {
-        const workingDirService = yield* WorkingDirService
         const timelineService = yield* TimelineService
-
-        yield* timelineService.enableAutoPersist()
+        const fs = yield* FileSystem.FileSystem
+        const workingDir = yield* WorkingDirService
 
         // Record an event - should auto-persist
-        yield* timelineService.recordEvent({ event: 'Test event' })
+        yield* timelineService.recordEvent({ event: 'system.initialized', phase: 'setup' })
 
         // File should exist and have the event
-        const fileTimeline = yield* workingDirService.readTimeline()
+        const timelineContent = yield* fs.readFileString(workingDir.paths.timelineFile)
+        const parsedContent = JSON.parse(timelineContent)
+        const fileTimeline = yield* Schema.decodeUnknown(TimelineSchema)(parsedContent)
         expect(fileTimeline.events).toHaveLength(1)
-        expect(fileTimeline.events[0]!.event).toBe('Test event')
+        expect(fileTimeline.events[0]!.event).toBe('system.initialized')
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
     })
 
-    it('should stop auto-persist when disabled', async () => {
+    it('should persist multiple events sequentially', async () => {
       const program = Effect.gen(function* () {
-        const workingDirService = yield* WorkingDirService
         const timelineService = yield* TimelineService
+        const fs = yield* FileSystem.FileSystem
+        const workingDir = yield* WorkingDirService
 
-        yield* timelineService.enableAutoPersist()
+        // All events auto-persist in the new architecture
+        yield* timelineService.recordEvent({ event: 'system.initialized', phase: 'setup' })
+        yield* timelineService.recordEvent({ event: 'hypothesis.started', phase: 'hypothesis-testing' })
 
-        // Record first event - should auto-persist
-        yield* timelineService.recordEvent({ event: 'First event' })
-
-        // Disable auto-persist
-        yield* timelineService.disableAutoPersist()
-
-        // Record second event - should not auto-persist
-        yield* timelineService.recordEvent({ event: 'Second event' })
-
-        // File should still have only the first event
-        const fileTimeline = yield* workingDirService.readTimeline()
-        expect(fileTimeline.events).toHaveLength(1)
-        expect(fileTimeline.events[0]!.event).toBe('First event')
+        // File should have both events
+        const timelineContent = yield* fs.readFileString(workingDir.paths.timelineFile)
+        const parsedContent = JSON.parse(timelineContent)
+        const fileTimeline = yield* Schema.decodeUnknown(TimelineSchema)(parsedContent)
+        expect(fileTimeline.events).toHaveLength(2)
+        expect(fileTimeline.events[0]!.event).toBe('system.initialized')
+        expect(fileTimeline.events[1]!.event).toBe('hypothesis.started')
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
     })
   })
 
-  describe('Manual persistence', () => {
-    it('should manually persist timeline to file', async () => {
+  describe('Persistence behavior', () => {
+    it('should automatically persist timeline to file', async () => {
       const program = Effect.gen(function* () {
-        const workingDirService = yield* WorkingDirService
         const timelineService = yield* TimelineService
+        const fs = yield* FileSystem.FileSystem
+        const workingDir = yield* WorkingDirService
 
-        // Record events (no auto-persist)
-        yield* timelineService.recordEvent({ event: 'First event' })
-        yield* timelineService.recordEvent({ event: 'Second event' })
+        // All events auto-persist in the new architecture
+        yield* timelineService.recordEvent({ event: 'system.initialized', phase: 'setup' })
+        yield* timelineService.recordEvent({ event: 'hypothesis.started', phase: 'hypothesis-testing' })
 
-        // Manually persist
-        yield* timelineService.persistToFile()
-
-        // File should have both events
-        const fileTimeline = yield* workingDirService.readTimeline()
+        // File should already have both events
+        const timelineContent = yield* fs.readFileString(workingDir.paths.timelineFile)
+        const parsedContent = JSON.parse(timelineContent)
+        const fileTimeline = yield* Schema.decodeUnknown(TimelineSchema)(parsedContent)
         expect(fileTimeline.events).toHaveLength(2)
-        expect(fileTimeline.events[0]!.event).toBe('First event')
-        expect(fileTimeline.events[1]!.event).toBe('Second event')
+        expect(fileTimeline.events[0]!.event).toBe('system.initialized')
+        expect(fileTimeline.events[1]!.event).toBe('hypothesis.started')
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))
     })
 
-    it('should fail to persist when timeline not initialized', async () => {
+    it('should always have timeline available after initialization', async () => {
       const program = Effect.gen(function* () {
         const timelineService = yield* TimelineService
-        yield* timelineService.persistToFile()
+        const timeline = yield* timelineService.getTimeline()
+        expect(timeline.events).toEqual([])
+        expect(timeline.createdAt).toBeDefined()
       })
 
-      await expect(Effect.runPromise(program.pipe(Effect.provide(runtime)))).rejects.toThrow(
-        'Timeline has not been initialized',
-      )
+      await Effect.runPromise(program.pipe(Effect.provide(runtime)))
     })
   })
 
@@ -399,21 +395,21 @@ describe('TimelineService', () => {
 
         // Record events with different phases and hypotheses
         yield* timelineService.recordEvent({
-          event: 'Reproduction started',
-          phase: 'reproduction',
+          event: 'phase.started',
+          phase: 'setup',
         })
         yield* timelineService.recordEvent({
-          event: 'H001 started',
+          event: 'hypothesis.started',
           hypothesisId: 'H001',
           phase: 'hypothesis-testing',
         })
         yield* timelineService.recordEvent({
-          event: 'H001 completed',
+          event: 'hypothesis.completed',
           hypothesisId: 'H001',
           phase: 'hypothesis-testing',
         })
         yield* timelineService.recordEvent({
-          event: 'H002 started',
+          event: 'hypothesis.started',
           hypothesisId: 'H002',
           phase: 'hypothesis-testing',
         })
@@ -422,7 +418,7 @@ describe('TimelineService', () => {
 
         expect(stats.totalEvents).toBe(4)
         expect(stats.eventsByPhase).toEqual({
-          reproduction: 1,
+          setup: 1,
           'hypothesis-testing': 3,
         })
         expect(stats.eventsByHypothesis).toEqual({
@@ -458,37 +454,34 @@ describe('TimelineService', () => {
       const program = Effect.gen(function* () {
         const workingDirService = yield* WorkingDirService
         const timelineService = yield* TimelineService
+        const fs = yield* FileSystem.FileSystem
 
-        // Initialize directory structure
-
-        // Initialize timeline with auto-persist
-        yield* timelineService.enableAutoPersist()
-
-        // Record various events
+        // Record various events (all auto-persist)
         yield* timelineService.recordEvent({
-          event: 'Run started',
-          phase: 'initialization',
+          event: 'system.initialized',
+          phase: 'setup',
         })
         yield* timelineService.recordEvent({
-          event: 'Reproduction began',
-          phase: 'reproduction',
+          event: 'phase.started',
+          phase: 'setup',
         })
         yield* timelineService.recordEvent({
-          event: 'H001 hypothesis started',
+          event: 'hypothesis.started',
           hypothesisId: 'H001',
           phase: 'hypothesis-testing',
-          metadata: { confidence: 0.8 },
+          details: { confidence: 0.8 },
         })
 
         // Verify file was written correctly via auto-persist
-        const fileTimeline = yield* workingDirService.readTimeline()
+        const timelineContent = yield* fs.readFileString(workingDirService.paths.timelineFile)
+        const parsedContent = JSON.parse(timelineContent)
+        const fileTimeline = yield* Schema.decodeUnknown(TimelineSchema)(parsedContent)
 
-        expect(fileTimeline.runId).toBe(runId)
         expect(fileTimeline.events).toHaveLength(3)
-        expect(fileTimeline.events[0]!.event).toBe('Run started')
-        expect(fileTimeline.events[1]!.event).toBe('Reproduction began')
-        expect(fileTimeline.events[2]!.event).toBe('H001 hypothesis started')
-        expect(fileTimeline.events[2]!.metadata).toEqual({ confidence: 0.8 })
+        expect(fileTimeline.events[0]!.event).toBe('system.initialized')
+        expect(fileTimeline.events[1]!.event).toBe('phase.started')
+        expect(fileTimeline.events[2]!.event).toBe('hypothesis.started')
+        expect(fileTimeline.events[2]!.details).toEqual({ confidence: 0.8 })
       })
 
       await Effect.runPromise(program.pipe(Effect.provide(runtime)))

@@ -1,11 +1,11 @@
 import { AiTool, AiToolkit, McpServer } from '@effect/ai'
-import { Effect, Layer, Schema } from 'effect'
-import { hypothesisId } from '../schemas/file-management.ts'
+import { Effect, Layer, Record, Schema } from 'effect'
+import { HypothesisId } from '../schemas/file-management.ts'
 import { HypothesisPhase, HypothesisResult, HypothesisStatusUpdate } from '../schemas/hypothesis.ts'
 import { StateStore } from './state-store.js'
 
 const UpdateStatusToolParameters = Schema.Struct({
-  hypothesisId,
+  hypothesisId: HypothesisId,
   phase: HypothesisPhase,
   experimentId: Schema.optional(
     Schema.String.annotations({
@@ -38,7 +38,7 @@ Call this when:
 })
 
 const SetResultToolParameters = Schema.Struct({
-  hypothesisId,
+  hypothesisId: HypothesisId,
   result: HypothesisResult,
 })
 
@@ -47,7 +47,7 @@ const SetResultTool = AiTool.make('dilagent_hypothesis_set_result', {
 Set the final result of your hypothesis testing. Only use this when you have reached a definitive conclusion.
 
 Example parameters:
-${JSON.stringify(SetResultToolParameters.make({ hypothesisId: 'H001', result: { _tag: 'Proven', hypothesisId: 'H001', findings: 'Found the root cause', rootCauses: [{ type: 'tooling', description: 'The tooling used was the root cause' }], nextSteps: ['Fix the tooling'], evidence: { reproduction: { key: 'reproduction', value: 'The reproduction steps' }, changes: ['The changes made'], testResults: 'The test results' } } }))}
+${JSON.stringify(SetResultToolParameters.make({ hypothesisId: 'H001', result: { _tag: 'Proven', hypothesisId: 'H001', findings: 'Found the root cause', rootCauses: [{ type: 'tooling', description: 'The tooling used was the root cause' }], nextSteps: ['Fix the tooling'], evidence: { reproduction: { minimalReproduction: 'Simple reproduction steps', environment: 'Node.js 20', consistency: 'Always reproducible' }, measurementData: { performanceMetrics: 'CPU usage reduced by 50%', resourceUsage: 'Memory usage stable', timingData: 'Response time improved from 2s to 500ms' } } } }))}
 
 Call this only at terminal states:
 - Root cause found and confirmed (Proven)
@@ -90,13 +90,16 @@ const makeHandlers = Effect.gen(function* () {
   const store = yield* StateStore
 
   return toolkit.of({
-    dilagent_hypothesis_update_status: ({ hypothesisId, phase, experimentId, status, evidence }) =>
+    dilagent_hypothesis_update_status: ({ hypothesisId, phase, status }) =>
       Effect.gen(function* () {
         yield* Effect.logDebug(`[MCP] dilagent_hypothesis_update_status called for ${hypothesisId} in ${phase} phase`)
 
         // Update hypothesis status in DilagentState
-        yield* store.updateHypothesis(hypothesisId, {
-          status: 'running',
+        yield* store.updateHypothesis({
+          id: hypothesisId,
+          update: {
+            status: 'running',
+          },
         })
 
         const message = `Updated status for ${hypothesisId}: ${phase} - ${status}`
@@ -108,16 +111,16 @@ const makeHandlers = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* Effect.logDebug(`[MCP] dilagent_hypothesis_set_result called for ${hypothesisId}: ${result._tag}`)
 
-        // Map HypothesisResult to DilagentState format
-        const resultStatus = result._tag === 'Proven' ? 'proven' as const
-          : result._tag === 'Disproven' ? 'disproven' as const
-          : 'inconclusive' as const
+        // Use the new HypothesisResult directly
+        const stateResult = result
 
-        yield* store.updateHypothesis(hypothesisId, {
-          status: 'completed',
-          result: resultStatus,
-          confidence: result._tag === 'Proven' || result._tag === 'Disproven' ? 0.9 : 0.1,
-          completedAt: new Date().toISOString(),
+        yield* store.updateHypothesis({
+          id: hypothesisId,
+          update: {
+            status: 'completed',
+            result: stateResult,
+            completedAt: new Date().toISOString(),
+          },
         })
 
         const message = `Set final result for ${hypothesisId}: ${result._tag}`
@@ -129,15 +132,15 @@ const makeHandlers = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* Effect.logDebug(`[MCP] dilagent_hypothesis_get_status_all called`)
 
-        const state = yield* store.getDilagentState()
-        const hypotheses = state.hypotheses.map((h) => {
+        const state = yield* store.getState()
+        const hypotheses = Object.values(state.hypotheses).map((h) => {
           // Create a compatible status update format
           const currentStatus: HypothesisStatusUpdate = {
             _tag: 'HypothesisStatusUpdate',
             hypothesisId: h.id,
             phase: h.status === 'running' ? 'TESTING' : 'DESIGNING',
-            status: `Status: ${h.status}${h.result ? ` (${h.result})` : ''}`,
-            evidence: `Branch: ${h.branch}, Worktree: ${h.worktree}`,
+            status: `Status: ${h.status}${h.result ? ` (${h.result._tag === 'Proven' ? h.result.findings : h.result._tag === 'Disproven' ? h.result.reason : h.result.intractableReason})` : ''}`,
+            evidence: `Worktree: ${h.worktreePath}`,
           }
 
           return {
@@ -155,16 +158,14 @@ const makeHandlers = Effect.gen(function* () {
         yield* Effect.logDebug(`[MCP] dilagent_state_clear called`)
 
         // Reset all hypotheses to pending state
-        yield* store.updateDilagentState((state) => ({
+        yield* store.updateState((state) => ({
           ...state,
-          hypotheses: state.hypotheses.map(h => ({
+          hypotheses: Record.map(state.hypotheses, (h) => ({
             ...h,
             status: 'pending' as const,
             result: undefined,
-            confidence: undefined,
             startedAt: undefined,
             completedAt: undefined,
-            executionTimeMs: undefined,
           })),
         }))
 

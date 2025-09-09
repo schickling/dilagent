@@ -56,6 +56,7 @@ Principled, structured debugging and root cause analysis
 - [~] Refine files/folder structure
   -  centralize logs in working directory (also facilitates showing the logs in the repl/UI)
 - [ ] Run TS in experiment test loop
+- [ ] "Roundabout" prompt concept instead of prompt request->response (i.e. have an adhoc mcp server with tools for input/output schema)
 - [ ] Get rid of Inconclusive / disproven hypo results
 - [ ] Improve claude debug logfile output (currently JSONL)
 - [ ] Use repl as interactive debugger e.g. when prompt fails

@@ -1,9 +1,9 @@
 {
   "name": "dilagent",
-  "version": "0.0.0",
+  "version": "0.0.3",
   "type": "module",
   "bin": {
-    "dilagent": "./dist/index.js"
+    "dilagent": "./dist/dilagent"
   },
   "files": [
     "src",
@@ -11,15 +11,16 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build && pnpm bundle",
     "bundle": "bun build --target node --outfile dist/dilagent src/main.ts && chmod +x dist/dilagent",
     "dev": "bun src/main.ts",
-    "test": "vitest"
+    "test": "vitest",
+    "prepublishOnly": "pnpm build"
   },
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
+  "devDependencies": {
     "@effect/ai": "^0.26.1",
     "@effect/cli": "^0.69.2",
     "@effect/platform": "^0.90.7",
@@ -27,9 +28,7 @@
     "@effect/printer": "^0.45.0",
     "@effect/printer-ansi": "^0.45.0",
     "@effect/typeclass": "^0.36.0",
-    "effect": "^3.17.13"
-  },
-  "devDependencies": {
+    "effect": "^3.17.13",
     "@types/node": "^24.3.1",
     "vitest": "^3.2.4"
   }

@@ -16,10 +16,12 @@ CRITICAL: Your final response must be ONLY valid JSON matching the required sche
 export const initialReproductionPrompt = ({
   problemPrompt,
   contextDirectory,
+  contextRelativePath,
   isFlaky,
 }: {
   problemPrompt: string
   contextDirectory: string
+  contextRelativePath: string | undefined
   isFlaky: boolean
 }) => `\
 ## Context
@@ -32,7 +34,17 @@ ${problemPrompt}
 ${contextDirectory}
 </context-directory>
 
-<is-flaky>
+${
+  contextRelativePath && contextRelativePath !== '.'
+    ? `<context-focus-area>
+The issue is located in the "${contextRelativePath}" subdirectory of the repository.
+Focus your exploration and reproduction on files within this subdirectory.
+When running commands, consider if they need to be executed from the "${contextRelativePath}" directory.
+</context-focus-area>
+
+`
+    : ''
+}<is-flaky>
 ${isFlaky ? 'true' : 'false'}
 </is-flaky>
 
@@ -174,12 +186,14 @@ Begin your response with {
 export const refineReproductionPrompt = ({
   problemPrompt,
   contextDirectory,
+  contextRelativePath,
   isFlaky,
   previousAttempt,
   userFeedback,
 }: {
   problemPrompt: string
   contextDirectory: string
+  contextRelativePath: string | undefined
   isFlaky: boolean
   previousAttempt: Extract<typeof ReproductionResult.Type, { _tag: 'NeedMoreInfo' }>
   userFeedback: string[]
@@ -194,7 +208,17 @@ ${problemPrompt}
 ${contextDirectory}
 </context-directory>
 
-<is-flaky>
+${
+  contextRelativePath && contextRelativePath !== '.'
+    ? `<context-focus-area>
+The issue is located in the "${contextRelativePath}" subdirectory of the repository.
+Focus your exploration and reproduction on files within this subdirectory.
+When running commands, consider if they need to be executed from the "${contextRelativePath}" directory.
+</context-focus-area>
+
+`
+    : ''
+}<is-flaky>
 ${isFlaky ? 'true' : 'false'}
 </is-flaky>
 

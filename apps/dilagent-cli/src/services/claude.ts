@@ -70,6 +70,8 @@ const prompt = (
     // Map LLM options to Claude-specific options
     const model: ClaudeModel = options.useBestModel ? 'Opus' : 'Sonnet'
 
+    yield* Effect.logDebug(`[ClaudeLLMLive] prompt(model: ${model}): ${input.slice(0, 100).replace(/\n/g, ' ')}...`)
+
     if (options.debugLogPath !== undefined) {
       const writeToLogFile = yield* getWriteToLogFile(options)
 
@@ -131,7 +133,7 @@ const prompt = (
     )
 
     return yield* getJsonResult({ response: validatedResponse, input, output })
-  }).pipe(Effect.withSpan('claude.prompt'), logDuration('claude.prompt'), Effect.scoped)
+  }).pipe(Effect.withSpan('claude.prompt'), logDuration('[ClaudeLLMLive] prompt'), Effect.scoped)
 
 /**
  * Send a prompt to Claude and stream the response line by line
@@ -178,9 +180,5 @@ const getJsonResult = ({ response, input, output }: { response: ResultMessage; i
       })
     }
 
-    // Claude CLI may wrap JSON in markdown code blocks even with tool usage
-    // Extract JSON if it's wrapped in ```json...```
-    const result = response.result.trim()
-    const jsonMatch = result.match(/^```json\s*\n([\s\S]*?)\n```$/)
-    return jsonMatch?.[1]?.trim() ?? result
+    return response.result
   })

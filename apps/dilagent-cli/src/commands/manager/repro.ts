@@ -7,91 +7,89 @@ import {
   refineReproductionPrompt,
   reproductionSystemPrompt,
 } from '../../prompts/reproduction.ts'
-import { type ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
+import { ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
-import { GitManagerService } from '../../services/git-manager.ts'
 import { LLMService } from '../../services/llm.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { generateRunSlug } from '../../utils/run-slug.ts'
+import { parseJsonLlmResponse } from '../../utils/schema-utils.ts'
 import {
-  contextDirectoryOption,
   cwdOption,
   flakyOption,
   llmOption,
-  promptOption,
+  REPRODUCTION_FILE,
+  REPRODUCTION_LOG_FILE,
   workingDirectoryOption,
 } from './shared.ts'
+
+/**
+ * Command to reproduce an issue for diagnostic understanding
+ *
+ * This command is responsible for:
+ * - Recording setup phase timeline events (phase.started, phase.completed/failed)
+ * - Creating reproducible test cases for the reported issue
+ * - Updating state store with reproduction results
+ *
+ * Timeline events recorded:
+ * - phase.started (phase: setup)
+ * - phase.completed/failed (phase: setup) with confidence and type details
+ *
+ * Used by: all.ts workflow orchestration
+ */
 
 export const reproCommand = Cli.Command.make(
   'repro',
   {
     workingDirectory: workingDirectoryOption,
-    contextDirectory: contextDirectoryOption,
     llm: llmOption,
-    prompt: promptOption,
     flaky: flakyOption,
     cwd: cwdOption,
   },
-  ({ workingDirectory, contextDirectory, llm, prompt, flaky, cwd }) => {
+  ({ workingDirectory, llm, flaky, cwd }) => {
     const resolvedCwd = Option.getOrElse(cwd, () => process.cwd())
-    const resolvedContextDirectory = path.resolve(resolvedCwd, contextDirectory)
     const resolvedWorkingDirectory = path.resolve(resolvedCwd, workingDirectory)
 
-    const runId = generateRunSlug('reproduction')
-
     return Effect.gen(function* () {
-      // Get problem prompt if not provided
-      const problemPrompt = yield* Option.match(prompt, {
-        onNone: () =>
-          Cli.Prompt.text({
-            message: 'Describe the problem you want to reproduce:',
-            validate: (input) =>
-              input.trim().length > 0 ? Effect.succeed(input) : Effect.fail('Problem description cannot be empty'),
-          }),
-        onSome: Effect.succeed,
-      })
+      yield* Effect.logDebug('[manager repro] 🔍 Phase 1: Reproducing issue...')
 
       const isFlaky = flaky._tag === 'Some' ? flaky.value : false
+
+      // Get problem prompt from persisted state
+      const stateStore = yield* StateStore
+      const workingDirService = yield* WorkingDirService
+      const state = yield* stateStore.getState()
+      const problemPrompt = state.problemPrompt
 
       // Run reproduction
       let result = yield* reproduceIssue({
         problemPrompt,
-        resolvedContextDirectory,
         isFlaky,
-        runId,
       })
 
       // Handle iterative feedback loop
       while (result._tag === 'NeedMoreInfo') {
-        yield* Effect.log('🤔 The reproduction process needs more information:')
-        yield* Effect.log(result.context)
+        yield* Effect.logDebug('[manager repro] 🤔 The reproduction process needs more information:')
+        yield* Effect.logDebug(result.context)
 
         if (result.blockers?.length) {
-          yield* Effect.log('🚧 Blockers encountered:')
+          yield* Effect.logDebug('[manager repro] 🚧 Blockers encountered:')
           for (const blocker of result.blockers) {
-            yield* Effect.log(`  • ${blocker}`)
+            yield* Effect.logDebug(`[manager repro]   • ${blocker}`)
           }
         }
 
         if (result.suggestions?.length) {
-          yield* Effect.log('💡 Suggestions to help:')
+          yield* Effect.logDebug('[manager repro] 💡 Suggestions to help:')
           for (const suggestion of result.suggestions) {
-            yield* Effect.log(`  • ${suggestion}`)
+            yield* Effect.logDebug(`[manager repro]   • ${suggestion}`)
           }
         }
 
         const answers = yield* askUserQuestions([...result.questions])
 
-        result = yield* reproduceIssue({
-          problemPrompt,
-          resolvedContextDirectory,
-          isFlaky,
-          runId,
-          userFeedback: answers,
-        })
+        result = yield* reproduceIssue({ problemPrompt, isFlaky, userFeedback: answers })
       }
 
       // Display final result
@@ -103,24 +101,28 @@ export const reproCommand = Cli.Command.make(
             environmental: '🔧',
           }[result.reproductionType]
 
-          yield* Effect.log(`✅ Reproduction successful! (${typeLabel} ${result.reproductionType})`)
-          yield* Effect.log(`📋 Expected: ${result.expectedBehavior}`)
-          yield* Effect.log(`📋 Observed: ${result.observedBehavior}`)
-          yield* Effect.log(`📊 Confidence: ${(result.confidence * 100).toFixed(1)}%`)
+          yield* Effect.logDebug(
+            `[manager repro] ✅ Reproduction successful! (${typeLabel} ${result.reproductionType})`,
+          )
+          yield* Effect.logDebug(`[manager repro] 📋 Expected: ${result.expectedBehavior}`)
+          yield* Effect.logDebug(`[manager repro] 📋 Observed: ${result.observedBehavior}`)
+          yield* Effect.logDebug(`[manager repro] 📊 Confidence: ${(result.confidence * 100).toFixed(1)}%`)
 
           if (result.executionTimeMs !== undefined) {
-            yield* Effect.log(`⏱️  Execution time: ${result.executionTimeMs}ms`)
+            yield* Effect.logDebug(`[manager repro] ⏱️  Execution time: ${result.executionTimeMs}ms`)
           }
 
           if (result.setupRequirements?.length) {
-            yield* Effect.log(`🔧 Setup required: ${result.setupRequirements.join(', ')}`)
+            yield* Effect.logDebug(`[manager repro] 🔧 Setup required: ${result.setupRequirements.join(', ')}`)
           }
 
           if (result.minimizationNotes) {
-            yield* Effect.log(`📝 ${result.minimizationNotes}`)
+            yield* Effect.logDebug(`[manager repro] 📝 ${result.minimizationNotes}`)
           }
 
-          yield* Effect.log(`📄 Reproduction script saved to: .dilagent/repro.ts`)
+          yield* Effect.logDebug(
+            `[manager repro] 📄 Reproduction script saved to: ${workingDirService.paths.artifacts}/repro.ts`,
+          )
           break
         }
       }
@@ -130,8 +132,8 @@ export const reproCommand = Cli.Command.make(
       Effect.provide(
         Layer.mergeAll(
           llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
-          Layer.mergeAll(GitManagerService.Default, TimelineService.Default(runId), StateStore.Default).pipe(
-            Layer.provideMerge(WorkingDirService.Default(resolvedWorkingDirectory)),
+          Layer.mergeAll(TimelineService.Default, StateStore.Default).pipe(
+            Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
           ),
         ),
       ),
@@ -141,15 +143,11 @@ export const reproCommand = Cli.Command.make(
 
 const reproduceIssue = ({
   problemPrompt,
-  resolvedContextDirectory,
   isFlaky,
-  runId,
   userFeedback,
 }: {
   problemPrompt: string
-  resolvedContextDirectory: string
   isFlaky: boolean
-  runId: string
   userFeedback?: string[]
 }) =>
   Effect.gen(function* () {
@@ -158,26 +156,25 @@ const reproduceIssue = ({
     const workingDirService = yield* WorkingDirService
     const stateStore = yield* StateStore
     const timelineService = yield* TimelineService
-    const gitManager = yield* GitManagerService
 
-    // Generate run ID and setup context directory as git repository
-    yield* gitManager.setupContextRepo(resolvedContextDirectory, runId)
+    // Context repo is already set up by setup command
     const contextDir = workingDirService.paths.contextRepo
 
     // Initialize timeline
-    yield* timelineService.enableAutoPersist()
     yield* timelineService.recordEvent({
-      event: 'Reproduction phase started',
-      phase: 'reproduction',
+      event: 'phase.started',
+      phase: 'setup',
     })
 
     // Check for existing reproduction results
     const reproductionJson = yield* fs
-      .readFileString(path.join(workingDirService.paths.artifacts, 'reproduction.json'))
+      .readFileString(path.join(workingDirService.paths.artifacts, REPRODUCTION_FILE))
       .pipe(
-        Effect.andThen(Schema.decode(Schema.parseJson(ReproductionResultFile))),
+        Effect.andThen(Schema.decode(ReproductionResultFile)),
         Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
       )
+
+    const state = yield* stateStore.getState()
 
     // Determine which prompt to use
     const prompt =
@@ -185,6 +182,7 @@ const reproduceIssue = ({
         ? refineReproductionPrompt({
             problemPrompt,
             contextDirectory: contextDir,
+            contextRelativePath: state.contextRelativePath,
             isFlaky,
             previousAttempt: reproductionJson,
             userFeedback,
@@ -192,13 +190,14 @@ const reproduceIssue = ({
         : initialReproductionPrompt({
             problemPrompt,
             contextDirectory: contextDir,
+            contextRelativePath: state.contextRelativePath,
             isFlaky,
           })
 
-    yield* Effect.log('Starting issue reproduction...')
+    yield* Effect.logDebug('[manager repro] Starting issue reproduction...')
     yield* timelineService.recordEvent({
-      event: 'LLM reproduction request started',
-      phase: 'reproduction',
+      event: 'system.initialized',
+      phase: 'setup',
     })
 
     const reproductionResult = yield* llm
@@ -207,47 +206,47 @@ const reproduceIssue = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(workingDirService.paths.logs, 'reproduction.log'),
+        debugLogPath: path.join(workingDirService.paths.logs, REPRODUCTION_LOG_FILE),
       })
       .pipe(
-        Effect.timeout('20 minutes'),
-        Effect.andThen(Schema.decode(ReproductionResultFile)),
+        Effect.timeout('30 minutes'),
+        Effect.andThen(Schema.decode(parseJsonLlmResponse(ReproductionResult))),
         Effect.withSpan('reproduceIssue'),
       )
 
     // Save reproduction result as artifact
     const artifactsDir = workingDirService.paths.artifacts
-    const reproductionFile = path.join(artifactsDir, 'reproduction.json')
-    const reproductionJsonContent = yield* Schema.encode(Schema.parseJson(ReproductionResultFile))(reproductionResult)
+    const reproductionFile = path.join(artifactsDir, REPRODUCTION_FILE)
+    const reproductionJsonContent = yield* Schema.encode(ReproductionResultFile)(reproductionResult)
     yield* fs.writeFileString(reproductionFile, reproductionJsonContent)
 
     // Record timeline event
     yield* timelineService.recordEvent({
-      event: `Reproduction ${reproductionResult._tag.toLowerCase()}`,
-      phase: 'reproduction',
-      metadata:
+      event: reproductionResult._tag === 'Success' ? 'phase.completed' : 'phase.failed',
+      phase: 'setup',
+      details:
         reproductionResult._tag === 'Success'
           ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
           : undefined,
     })
 
     // Update StateStore with reproduction results
-    yield* stateStore.updateDilagentState((state) => ({
+    yield* stateStore.updateState((state) => ({
       ...state,
-      currentPhase: 'reproduction' as const,
-      reproduction: {
-        status:
+      currentPhase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'setup',
+      completedPhases:
+        reproductionResult._tag === 'Success' ? [...state.completedPhases, 'setup'] : state.completedPhases,
+      progress: {
+        ...state.progress,
+        phase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'setup',
+        message:
           reproductionResult._tag === 'Success'
-            ? ('success' as const)
-            : reproductionResult._tag === 'NeedMoreInfo'
-              ? ('failed' as const)
-              : ('failed' as const),
-        attempts: 1, // TODO: Track actual attempts if refined
-        confidence: reproductionResult._tag === 'Success' ? reproductionResult.confidence : 0,
+            ? 'Reproduction successful, ready for hypothesis generation'
+            : 'Reproduction failed, need more information',
       },
     }))
 
-    yield* Effect.log(`Updated state with reproduction result: ${reproductionResult._tag}`)
+    yield* Effect.logDebug(`[manager repro] Updated state with reproduction result: ${reproductionResult._tag}`)
 
     // If successful, also save the repro.ts script
     if (reproductionResult._tag === 'Success') {
@@ -260,21 +259,23 @@ const reproduceIssue = ({
         environmental: '🔧',
       }[reproductionResult.reproductionType]
 
-      yield* Effect.log(`✅ Reproduction created (${typeLabel} ${reproductionResult.reproductionType})`)
+      yield* Effect.logDebug(
+        `[manager repro] ✅ Reproduction created (${typeLabel} ${reproductionResult.reproductionType})`,
+      )
 
       if (reproductionResult.executionTimeMs !== undefined) {
-        yield* Effect.log(`⏱️  Execution time: ${reproductionResult.executionTimeMs}ms`)
+        yield* Effect.logDebug(`[manager repro] ⏱️  Execution time: ${reproductionResult.executionTimeMs}ms`)
       }
 
       if (reproductionResult.setupRequirements?.length) {
-        yield* Effect.log(`📋 Setup required: ${reproductionResult.setupRequirements.join(', ')}`)
+        yield* Effect.logDebug(`[manager repro] 📋 Setup required: ${reproductionResult.setupRequirements.join(', ')}`)
       }
 
       if (reproductionResult.minimizationNotes) {
-        yield* Effect.log(`📝 ${reproductionResult.minimizationNotes}`)
+        yield* Effect.logDebug(`[manager repro] 📝 ${reproductionResult.minimizationNotes}`)
       }
 
-      yield* Effect.log(`📄 Reproduction script saved to ${reproScriptFile}`)
+      yield* Effect.logDebug(`[manager repro] 📄 Reproduction script saved to ${reproScriptFile}`)
     }
 
     return reproductionResult

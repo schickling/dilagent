@@ -1,65 +1,62 @@
 import type { SummaryInput } from '../schemas/file-management.ts'
 
 export const createSummaryPrompt = (input: SummaryInput): string => {
-  const { runState, runConfig, timeline, reproductionResult, executionMetrics, artifactsPaths } = input
+  const { state, timeline, executionMetrics } = input
+
+  // Convert hypotheses record to array for easier processing
+  const hypothesesList = Object.values(state.hypotheses)
+  const totalHypotheses = hypothesesList.length
+  const completedHypotheses = hypothesesList.filter((h) => h.status === 'completed').length
+  const successfulHypotheses = hypothesesList.filter((h) => h.result?._tag === 'Proven').length
+  const failedHypotheses = hypothesesList.filter((h) => h.result?._tag === 'Disproven').length
 
   return `Generate a comprehensive markdown summary report for this Dilagent debugging session.
 
 ## Run Information
-- **Run ID**: ${runState.runId}
-- **Problem Statement**: ${runConfig.problemStatement}
-- **Context Directory**: ${runState.contextDir}
-- **Started**: ${runState.createdAt}
-- **Completed**: ${runState.lastUpdated}
-- **Total Duration**: ${Math.round(executionMetrics.totalDurationMs / 1000)}s
-- **LLM Used**: ${runConfig.llm}
-
-## Reproduction Results
-${
-  runState.reproduction.status === 'success'
-    ? `✅ **Successfully reproduced** (confidence: ${Math.round(runState.reproduction.confidence * 100)}%)
-${runState.reproduction.attempts > 1 ? `- Required ${runState.reproduction.attempts} attempts` : ''}
-${reproductionResult ? '- Detailed reproduction data available' : ''}
-${artifactsPaths.reproScript ? `- Generated reproduction script: \`${artifactsPaths.reproScript}\`` : ''}`
-    : `❌ **Failed to reproduce** after ${runState.reproduction.attempts} attempts
-- Confidence: ${Math.round(runState.reproduction.confidence * 100)}%`
-}
+- **Context Directory**: ${state.contextDirectory}${state.contextRelativePath && state.contextRelativePath !== '.' ? ` (focusing on ${state.contextRelativePath} subdirectory)` : ''}
+- **Working Directory**: ${state.workingDirectory}
+- **Started**: ${new Date(state.metrics.startTime).toLocaleString()}
+- **Current Phase**: ${state.currentPhase}
+- **Total Duration**: ${Math.round(executionMetrics.wallClockTimeMs / 1000)}s
 
 ## Hypothesis Testing Results
 
-**Summary**: ${runState.overallProgress.totalHypotheses} hypotheses tested
-- ✅ ${runState.overallProgress.completed} completed
-- ❌ ${runState.overallProgress.failed} failed
-- ⏳ ${runState.overallProgress.remaining} remaining
+**Summary**: ${totalHypotheses} hypotheses tested
+- ✅ ${successfulHypotheses} successful
+- ❌ ${failedHypotheses} failed
+- ⏳ ${completedHypotheses}/${totalHypotheses} completed
 
 ### Hypothesis Details
 
-${runState.hypotheses
-  .map(
-    (hyp) => `#### ${hyp.id}: ${hyp.slug.replace(/-/g, ' ')}
-- **Status**: ${hyp.status}${hyp.result ? ` (${hyp.result})` : ''}
-- **Branch**: \`${hyp.branch}\`
-${hyp.confidence ? `- **Confidence**: ${Math.round(hyp.confidence * 100)}%` : ''}
-${hyp.executionTimeMs ? `- **Execution Time**: ${Math.round(hyp.executionTimeMs / 1000)}s` : ''}
-${hyp.startedAt && hyp.completedAt ? `- **Duration**: ${hyp.startedAt} → ${hyp.completedAt}` : ''}`,
-  )
-  .join('\n\n')}
+${hypothesesList
+  .map((h) => {
+    const statusIcon =
+      h.status === 'completed'
+        ? h.result?._tag === 'Proven'
+          ? '✅'
+          : h.result?._tag === 'Disproven'
+            ? '❌'
+            : '❔'
+        : h.status === 'running'
+          ? '🔄'
+          : '⏸️'
 
-${
-  runConfig.parallelExecution.enabled
-    ? `\n### Parallel Execution
-- **Max Concurrent**: ${runConfig.parallelExecution.maxConcurrent}
-- **Currently Running**: ${runState.parallelExecution.currentlyRunning.length > 0 ? runState.parallelExecution.currentlyRunning.join(', ') : 'None'}`
-    : ''
-}
+    const summary = h.result
+      ? ` - ${h.result._tag === 'Proven' ? h.result.findings : h.result._tag === 'Disproven' ? h.result.reason : h.result.intractableReason}`
+      : ''
+
+    return `#### ${statusIcon} ${h.id}: ${h.slug}
+- **Status**: ${h.status}${summary}
+- **Worktree**: ${h.worktreePath}
+${h.startedAt ? `- **Started**: ${h.startedAt}` : ''}
+${h.completedAt ? `- **Completed**: ${h.completedAt}` : ''}`
+  })
+  .join('\n\n')}
 
 ## Key Timeline Events
 
 ${timeline.events
-  .filter(
-    (event) =>
-      event.hypothesisId || event.phase || event.event.includes('completed') || event.event.includes('started'),
-  )
+  .filter((event) => event.event.includes('phase.') || event.event.includes('hypothesis.') || event.phase !== undefined)
   .slice(-10) // Show last 10 key events
   .map(
     (event) =>
@@ -69,16 +66,10 @@ ${timeline.events
 
 ## Performance Metrics
 
-- **Total Execution**: ${Math.round(executionMetrics.totalDurationMs / 1000)}s
-${executionMetrics.reproductionDurationMs ? `- **Reproduction Phase**: ${Math.round(executionMetrics.reproductionDurationMs / 1000)}s` : ''}
-${executionMetrics.hypothesisGenerationDurationMs ? `- **Hypothesis Generation**: ${Math.round(executionMetrics.hypothesisGenerationDurationMs / 1000)}s` : ''}
-${executionMetrics.hypothesesTestingDurationMs ? `- **Hypothesis Testing**: ${Math.round(executionMetrics.hypothesesTestingDurationMs / 1000)}s` : ''}
-
-## Generated Artifacts
-
-${artifactsPaths.reproScript ? `- 📄 **Reproduction Script**: \`${artifactsPaths.reproScript}\`` : ''}
-${artifactsPaths.reproductionJson ? `- 📊 **Reproduction Data**: \`${artifactsPaths.reproductionJson}\`` : ''}
-${artifactsPaths.hypothesesJson ? `- 🧪 **Hypotheses Data**: \`${artifactsPaths.hypothesesJson}\`` : ''}
+- **Wall Clock Time**: ${Math.round(executionMetrics.wallClockTimeMs / 1000)}s
+- **Total Events**: ${timeline.events.length}
+- **Hypotheses Generated**: ${state.metrics.hypothesesGenerated}
+- **Hypotheses Completed**: ${state.metrics.hypothesesCompleted}
 
 ## Next Steps
 

@@ -1,98 +1,133 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { FileSystem } from '@effect/platform'
-import { Effect, Layer } from 'effect'
+import { Effect, Layer, Option } from 'effect'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { generateRunSlug } from '../../utils/run-slug.ts'
-import { workingDirectoryOption } from './shared.ts'
+import { cwdOption, workingDirectoryOption } from './shared.ts'
+
+/**
+ * Command to generate comprehensive workflow summary and statistics
+ *
+ * This command analyzes the complete workflow execution and provides:
+ * - Final workflow completion event recording
+ * - Comprehensive timing statistics
+ * - Detailed summary report file
+ * - Console statistics display
+ *
+ * Used by the 'all' command for final workflow reporting.
+ */
 
 export const summaryCommand = Cli.Command.make(
   'summary',
   {
     workingDirectory: workingDirectoryOption,
+    cwd: cwdOption,
   },
-  ({ workingDirectory }) => {
-    const runId = generateRunSlug('summary')
-    const resolvedWorkingDirectory = path.resolve(process.cwd(), workingDirectory)
+  ({ workingDirectory, cwd }) => {
+    const resolvedCwd = Option.getOrElse(cwd, () => process.cwd())
+    const resolvedWorkingDirectory = path.resolve(resolvedCwd, workingDirectory)
 
     return Effect.gen(function* () {
+      yield* Effect.logDebug('[manager summary] 📊 Phase 4: Generating summary...')
+
       const stateStore = yield* StateStore
       const timelineService = yield* TimelineService
       const workingDirService = yield* WorkingDirService
       const fs = yield* FileSystem.FileSystem
 
-      // Load state and timeline
-      const state = yield* stateStore.getDilagentState()
+      // Get timeline to calculate total workflow time
+      const timeline = yield* timelineService.getTimeline()
+      const state = yield* stateStore.getState()
+
+      // Find workflow start and end times from timeline events
+      const startEvent = timeline.events.find((e) => e.event === 'phase.started' && e.phase === 'setup')
+      const currentTime = Date.now()
+
+      // Calculate total workflow time
+      const totalWorkflowTime = startEvent ? currentTime - new Date(startEvent.timestamp).getTime() : undefined
+
+      // Record workflow completion event
+      yield* timelineService.recordEvent({
+        event: 'phase.completed',
+        phase: 'completed',
+        details: {
+          totalExecutionTimeMs: totalWorkflowTime,
+          hypothesesGenerated: state.metrics.hypothesesGenerated,
+          hypothesesCompleted: state.metrics.hypothesesCompleted,
+          hypothesesSuccessful: state.metrics.hypothesesSuccessful,
+          hypothesesFailed: state.metrics.hypothesesFailed,
+        },
+      })
+
+      // Update state to completed
+      yield* stateStore.completeRun()
+
+      // Load updated timeline stats after recording completion event
       const timelineStats = yield* timelineService.getStatistics()
 
       // Calculate execution metrics
-      const totalHypotheses = state.hypotheses.length
-      const completedHypotheses = state.hypotheses.filter((h) => h.status === 'completed').length
-      const provenHypotheses = state.hypotheses.filter((h) => h.result === 'proven').length
-      const disprovenHypotheses = state.hypotheses.filter((h) => h.result === 'disproven').length
-      const inconclusiveHypotheses = state.hypotheses.filter((h) => h.result === 'inconclusive').length
+      const hypothesesList = Object.values(state.hypotheses)
+      const totalHypotheses = hypothesesList.length
+      const completedHypotheses = hypothesesList.filter((h) => h.status === 'completed').length
+      const successfulHypotheses = hypothesesList.filter((h) => h.result?._tag === 'Proven').length
+      const failedHypotheses = hypothesesList.filter((h) => h.result?._tag === 'Disproven').length
+      const pendingHypotheses = hypothesesList.filter((h) => h.status === 'pending').length
+      const provenHypotheses = hypothesesList.filter((h) => h.result?._tag === 'Proven').length
+      const disprovenHypotheses = hypothesesList.filter((h) => h.result?._tag === 'Disproven').length
 
-      const totalExecutionTime = state.hypotheses.reduce((acc, h) => acc + (h.executionTimeMs ?? 0), 0)
+      const totalExecutionTime = 0 // TODO: track execution time in new schema
 
-      const startTime = new Date(state.createdAt).getTime()
-      const endTime = Date.now() // DilagentState doesn't have completedAt field
-      const wallClockTime = endTime - startTime
+      const startTime = new Date(state.metrics.startTime).getTime()
+      const metricsEndTime = state.metrics.endTime ? new Date(state.metrics.endTime).getTime() : Date.now()
+      const wallClockTime = metricsEndTime - startTime
 
       // Generate summary content
       const summaryContent = `# Debugging Session Summary
 
 ## Overview
-- **Run ID**: ${state.runId}
-- **Context**: ${state.contextDir}
-- **Started**: ${new Date(state.createdAt).toLocaleString()}
+- **Context Directory**: ${state.contextDirectory}
+- **Working Directory**: ${state.workingDirectory}
+- **Started**: ${new Date(state.metrics.startTime).toLocaleString()}
 - **Current Phase**: ${state.currentPhase}
 - **Status**: ${state.currentPhase === 'completed' ? 'Completed' : 'In Progress'}
 
 ## Results Summary
 - **Total Hypotheses**: ${totalHypotheses}
 - **Completed**: ${completedHypotheses}/${totalHypotheses} (${Math.round((completedHypotheses / totalHypotheses) * 100)}%)
-- **✅ Proven**: ${provenHypotheses}
-- **❌ Disproven**: ${disprovenHypotheses}
-- **❔ Inconclusive**: ${inconclusiveHypotheses}
+- **✅ Successful**: ${successfulHypotheses}
+- **❌ Failed**: ${failedHypotheses}
+- **⏸️ Pending**: ${pendingHypotheses}
 
 ## Performance Metrics
 - **Wall Clock Time**: ${Math.round(wallClockTime / 1000)}s (${Math.round(wallClockTime / 60000)}m)
 - **Total Execution Time**: ${Math.round(totalExecutionTime / 1000)}s (${Math.round(totalExecutionTime / 60000)}m)
 - **Timeline Events**: ${timelineStats.totalEvents}
 
-## Reproduction Status
-${
-  state.reproduction.status === 'success'
-    ? `✅ **Successful** (${Math.round(state.reproduction.confidence * 100)}% confidence)`
-    : state.reproduction.status === 'failed'
-      ? `❌ **Failed** after ${state.reproduction.attempts} attempts`
-      : `⏳ **Pending**`
-}
-
 ## Hypothesis Details
 
-${state.hypotheses
+${hypothesesList
   .map((h) => {
     const statusIcon =
       h.status === 'completed'
-        ? h.result === 'proven'
+        ? h.result?._tag === 'Proven'
           ? '✅'
-          : h.result === 'disproven'
+          : h.result?._tag === 'Disproven'
             ? '❌'
             : '❔'
         : h.status === 'running'
           ? '🔄'
           : '⏸️'
 
-    const confidence = h.confidence !== undefined ? ` (${Math.round(h.confidence * 100)}% confidence)` : ''
-    const execTime = h.executionTimeMs ? ` | ${Math.round(h.executionTimeMs / 1000)}s` : ''
+    const summary = h.result
+      ? ` - ${h.result._tag === 'Proven' ? h.result.findings : h.result._tag === 'Disproven' ? h.result.reason : h.result.intractableReason}`
+      : ''
+    const execTime = '' // TODO: track execution time
 
     return `### ${statusIcon} ${h.id}: ${h.slug}
-- **Status**: ${h.status}${confidence}
-- **Branch**: ${h.branch}${execTime}
-- **Worktree**: ${h.worktree}
+- **Status**: ${h.status}${summary}
+- **Worktree**: ${h.worktreePath}${execTime}
 `
   })
   .join('\n')}
@@ -114,8 +149,8 @@ ${
 ## Key Insights
 ${
   provenHypotheses > 0
-    ? `🎯 **Root Cause Found**: ${state.hypotheses
-        .filter((h) => h.result === 'proven')
+    ? `🎯 **Root Cause Found**: ${hypothesesList
+        .filter((h) => h.result?._tag === 'Proven')
         .map((h) => h.id)
         .join(', ')}`
     : disprovenHypotheses === totalHypotheses
@@ -137,16 +172,32 @@ ${
         .writeFileString(summaryFile, summaryContent)
         .pipe(Effect.catchAll((error) => Effect.die(`Failed to write summary: ${error}`)))
 
-      yield* Effect.log(`📄 Generated debugging session summary: ${summaryFile}`)
-      yield* Effect.log(
-        `📊 Session Stats: ${completedHypotheses}/${totalHypotheses} hypotheses completed, ${provenHypotheses} proven`,
-      )
+      // Display comprehensive console summary (from all.ts)
+      yield* Effect.log('🎯 Complete workflow finished!')
+      yield* Effect.log(`📊 Workflow Statistics:`)
 
-      return summaryContent
+      if (totalWorkflowTime) {
+        yield* Effect.log(`   • Total time: ${totalWorkflowTime}ms`)
+      }
+
+      yield* Effect.log(`   • Hypotheses generated: ${state.metrics.hypothesesGenerated}`)
+      yield* Effect.log(`   • Hypotheses completed: ${state.metrics.hypothesesCompleted}`)
+      yield* Effect.log(`   • Hypotheses successful: ${state.metrics.hypothesesSuccessful}`)
+      yield* Effect.log(`   • Hypotheses failed: ${state.metrics.hypothesesFailed}`)
+      yield* Effect.log(`   • Total timeline events: ${timelineStats.totalEvents}`)
+
+      yield* Effect.log(`📄 Generated debugging session summary: ${summaryFile}`)
+
+      return {
+        summaryContent,
+        totalWorkflowTime,
+        metrics: state.metrics,
+        timelineStats,
+      }
     }).pipe(
       Effect.provide(
-        Layer.mergeAll(TimelineService.Default(runId), StateStore.Default).pipe(
-          Layer.provideMerge(WorkingDirService.Default(resolvedWorkingDirectory)),
+        Layer.mergeAll(TimelineService.Default, StateStore.Default).pipe(
+          Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
         ),
       ),
     )

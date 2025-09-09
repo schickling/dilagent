@@ -1,5 +1,9 @@
-import { Effect, Ref, Schema } from 'effect'
-import type { DilagentState } from '../schemas/file-management.ts'
+import * as crypto from 'node:crypto'
+import * as Path from 'node:path'
+import { FileSystem } from '@effect/platform'
+import { Effect, type ParseResult, Ref, Schema } from 'effect'
+import type { DilagentState, HypothesisId, HypothesisState } from '../schemas/file-management.ts'
+import { DilagentState as DilagentStateSchema } from '../schemas/file-management.ts'
 import { WorkingDirService } from './working-dir.ts'
 
 // Error types for StateStore
@@ -8,238 +12,238 @@ export class StateStoreError extends Schema.TaggedError<StateStoreError>()('Stat
   message: Schema.String,
 }) {}
 
-export class StateStoreInitializationError extends Schema.TaggedError<StateStoreInitializationError>()(
-  'StateStoreInitializationError',
-  {
-    cause: Schema.Defect,
-    message: Schema.String,
-    statePath: Schema.String,
-  },
-) {}
-
-export class StateStoreFlushError extends Schema.TaggedError<StateStoreFlushError>()('StateStoreFlushError', {
+export class StatePersistenceError extends Schema.TaggedError<StatePersistenceError>()('StatePersistenceError', {
   cause: Schema.Defect,
   message: Schema.String,
-  statePath: Schema.String,
+  stateFile: Schema.String,
 }) {}
 
-const now = new Date().toISOString()
-const createDefaultState = (): DilagentState => ({
-  runId: '2025-09-07-test',
-  runSlug: '2025-09-07-test',
-  contextDir: '/test/context',
-  contextType: 'directory',
-  createdAt: now,
-  lastUpdated: now,
-  currentPhase: 'reproduction',
-  phaseStartedAt: now,
-  reproduction: {
-    status: 'pending',
-    attempts: 0,
-    confidence: 0.0,
-  },
-  hypotheses: [],
-  parallelExecution: {
-    enabled: false,
-    maxConcurrent: 1,
-    currentlyRunning: [],
-  },
-  overallProgress: {
-    totalHypotheses: 0,
-    completed: 0,
-    failed: 0,
-    remaining: 0,
-  },
-})
-
+/**
+ * Service for managing application state
+ *
+ * Responsibilities:
+ * - Owns the complete state lifecycle
+ * - Reads existing state OR creates default on initialization
+ * - Auto-persists all state changes
+ * - Provides business logic for state mutations
+ */
 export class StateStore extends Effect.Service<StateStore>()('StateStore', {
   effect: Effect.gen(function* () {
-    const workingDirService = yield* WorkingDirService
+    const workingDir = yield* WorkingDirService
+    const fs = yield* FileSystem.FileSystem
 
-    // DilagentState store with auto-flush
-    // const workingDirPath = yield* Ref.make<string | undefined>(undefined)
+    // Helper to create default state
+    const createDefaultState = (): DilagentState => ({
+      workingDirId: crypto.randomUUID(),
+      problemPrompt: '', // Will be set during setup
+      contextDirectory: workingDir.workingDir,
+      contextRelativePath: undefined,
+      workingDirectory: workingDir.workingDir,
+      hypotheses: {} as DilagentState['hypotheses'],
+      currentPhase: 'setup',
+      completedPhases: [],
+      metrics: {
+        startTime: new Date().toISOString(),
+        endTime: undefined,
+        hypothesesGenerated: 0,
+        hypothesesCompleted: 0,
+        hypothesesSuccessful: 0,
+        hypothesesFailed: 0,
+        hypothesesSkipped: 0,
+      },
+      progress: {
+        current: 0,
+        total: 0,
+        phase: 'setup',
+        message: 'Starting dilagent',
+      },
+    })
 
-    // /**
-    //  * Initialize DilagentState from file or create new state
-    //  *
-    //  * @param workingDir - Working directory containing .dilagent
-    //  * @param initialState - Initial state if file doesn't exist
-    //  * @returns Effect that succeeds when state is initialized
-    //  */
-    // const initializeDilagentState = Effect.fn('StateStore.initializeDilagentState')(function* (
-    //   workingDir: string,
-    //   initialState?: DilagentState,
-    // ) {
-    // yield* Effect.annotateCurrentSpan({ workingDir })
+    // Helper to migrate old state files
+    const migrateState = (rawState: any): DilagentState => {
+      // If workingDirId is missing, add it
+      if (!rawState.workingDirId) {
+        rawState.workingDirId = crypto.randomUUID()
+      }
+      
+      // If problemPrompt is missing, add empty string
+      if (!rawState.problemPrompt) {
+        rawState.problemPrompt = ''
+      }
+      
+      // If contextRelativePath is missing, set to undefined
+      if (!rawState.hasOwnProperty('contextRelativePath')) {
+        rawState.contextRelativePath = undefined
+      }
 
-    // Store working directory for auto-flush
-    // yield* Ref.set(workingDirPath, workingDir)
+      // Migrate old hypothesis result formats
+      if (rawState.hypotheses && typeof rawState.hypotheses === 'object') {
+        for (const [hypothesisId, hypothesis] of Object.entries(rawState.hypotheses as any)) {
+          if (hypothesis && typeof hypothesis === 'object') {
+            const h = hypothesis as any
+            // If result exists but doesn't have _tag, it's an old format - remove it
+            if (h.result && typeof h.result === 'object' && !h.result._tag) {
+              // Clear invalid result - let it be set properly through MCP tools
+              h.result = undefined
+            }
+          }
+        }
+      }
+      
+      return rawState as DilagentState
+    }
 
-    // Try to load existing state
-    const existingState = yield* workingDirService.readState().pipe(
-      Effect.catchAll((error) =>
-        Effect.gen(function* () {
-          // If file doesn't exist, that's okay - we'll use initial state
-          yield* Effect.log(`No existing state found, using initial state: ${error.message}`)
-          return undefined
-        }),
+    // Read existing state or create default - happens ONCE during init
+    const initialState = yield* fs.readFileString(workingDir.paths.stateFile).pipe(
+      Effect.flatMap((content) => 
+        Effect.try({
+          try: () => JSON.parse(content),
+          catch: (error) => new StateStoreError({ cause: error, message: 'Failed to parse state file JSON' })
+        }).pipe(
+          Effect.map(migrateState),
+          Effect.flatMap((migrated) => Schema.decodeUnknown(DilagentStateSchema)(migrated))
+        )
+      ),
+      Effect.catchIf(
+        (_) => _._tag === 'SystemError' && _.reason === 'NotFound',
+        () =>
+          Effect.succeed(createDefaultState()).pipe(
+            Effect.tap(Effect.logDebug('[StateStore] No existing state found, creating default')),
+          ),
       ),
     )
 
-    const statePath = workingDirService.paths.stateFile
+    // Internal mutable reference
+    const stateRef = yield* Ref.make(initialState)
 
-    const stateToUse = existingState ?? createDefaultState()
-    if (!stateToUse) {
-      return yield* new StateStoreInitializationError({
-        cause: new Error('No existing state and no initial state provided'),
-        message: `Failed to initialize state: no existing state found and no initial state provided`,
-        statePath: statePath,
-      })
-    }
-
-    const dilagentStateStore = yield* Ref.make<DilagentState>(stateToUse)
-    const autoFlushEnabled = yield* Ref.make<boolean>(false)
-
-    yield* Ref.set(dilagentStateStore, stateToUse)
-    yield* Effect.log(`Initialized DilagentState from ${existingState ? 'file' : 'initial state'}`)
-    // })
-
-    /**
-     * Enable auto-flush - state will be written to file on every update
-     *
-     * @returns Effect that succeeds when auto-flush is enabled
-     */
-    const enableAutoFlush = Effect.fn('StateStore.enableAutoFlush')(function* () {
-      yield* Ref.set(autoFlushEnabled, true)
-      yield* Effect.log('Auto-flush enabled for DilagentState')
-    })
-
-    /**
-     * Disable auto-flush
-     *
-     * @returns Effect that succeeds when auto-flush is disabled
-     */
-    const disableAutoFlush = Effect.fn('StateStore.disableAutoFlush')(function* () {
-      yield* Ref.set(autoFlushEnabled, false)
-      yield* Effect.log('Auto-flush disabled for DilagentState')
-    })
-
-    /**
-     * Get current DilagentState
-     *
-     * @returns Effect that succeeds with current DilagentState
-     */
-    const getDilagentState = Effect.fn('StateStore.getDilagentState')(function* () {
-      const state = yield* Ref.get(dilagentStateStore)
-      if (!state) {
-        return yield* new StateStoreError({
-          cause: new Error('DilagentState not initialized'),
-          message: 'DilagentState has not been initialized. Call initializeDilagentState first.',
-        })
-      }
-      return state
-    })
-
-    /**
-     * Update DilagentState with auto-flush
-     *
-     * @param updateFn - Function to update the state
-     * @returns Effect that succeeds when state is updated
-     */
-    const updateDilagentState = Effect.fn('StateStore.updateDilagentState')(function* (
-      updateFn: (state: DilagentState) => DilagentState,
-    ) {
-      const currentState = yield* getDilagentState()
-      const newState = {
-        ...updateFn(currentState),
-        lastUpdated: new Date().toISOString(),
-      }
-
-      yield* Ref.set(dilagentStateStore, newState)
-
-      // Auto-flush if enabled
-      const shouldAutoFlush = yield* Ref.get(autoFlushEnabled)
-      if (shouldAutoFlush) {
-        yield* flushToFile()
-      }
-
-      yield* Effect.log('Updated DilagentState')
-    })
-
-    /**
-     * Manually flush current state to file
-     *
-     * @returns Effect that succeeds when state is flushed
-     */
-    const flushToFile = Effect.fn('StateStore.flushToFile')(function* () {
-      const state = yield* getDilagentState()
-
-      yield* workingDirService.writeState(state).pipe(
+    // Helper to persist current state
+    const persist = Effect.gen(function* () {
+      const currentState = yield* Ref.get(stateRef)
+      const encoded = yield* Schema.encode(Schema.parseJson(DilagentStateSchema, { space: 2 }))(currentState)
+      yield* fs.writeFileString(workingDir.paths.stateFile, encoded).pipe(
         Effect.catchAll(
           (error) =>
-            new StateStoreFlushError({
+            new StatePersistenceError({
               cause: error,
-              message: `Failed to flush DilagentState to file`,
-              statePath: workingDirService.paths.stateFile,
+              message: 'Failed to persist state to file',
+              stateFile: workingDir.paths.stateFile,
             }),
         ),
       )
-
-      yield* Effect.log(`Flushed DilagentState to ${workingDirService.paths.stateFile}`)
+      yield* Effect.logDebug('[StateStore] State persisted')
     })
 
-    /**
-     * Update hypothesis status in DilagentState
-     *
-     * @param hypothesisId - Hypothesis ID to update
-     * @param updates - Partial updates to apply
-     * @returns Effect that succeeds when hypothesis is updated
-     */
-    const updateHypothesis = Effect.fn('StateStore.updateHypothesis')(function* (
-      hypothesisId: string,
-      updates: Partial<
-        Pick<
-          (typeof DilagentState.Type.hypotheses)[0],
-          'status' | 'result' | 'startedAt' | 'completedAt' | 'confidence' | 'executionTimeMs'
-        >
-      >,
-    ) {
-      yield* updateDilagentState((state) => {
-        // Update the specific hypothesis
-        const updatedHypotheses = state.hypotheses.map((h) => (h.id === hypothesisId ? { ...h, ...updates } : h))
+    // Do initial persist
+    yield* persist
 
-        // Recalculate overall progress
-        const totalHypotheses = updatedHypotheses.length
-        const completed = updatedHypotheses.filter((h) => h.status === 'completed').length
-        const failed = updatedHypotheses.filter((h) => h.status === 'failed').length
-        const remaining = totalHypotheses - completed - failed
+    // Public API - all mutations auto-persist
+    const getState = () => Ref.get(stateRef)
 
-        return {
-          ...state,
-          hypotheses: updatedHypotheses,
-          overallProgress: {
-            totalHypotheses,
-            completed,
-            failed,
-            remaining,
-          },
-          lastUpdated: new Date().toISOString(),
-        }
+    const updateState = (
+      updater: (state: DilagentState) => DilagentState,
+    ): Effect.Effect<DilagentState, ParseResult.ParseError | StatePersistenceError> =>
+      Effect.gen(function* () {
+        const newState = yield* Ref.updateAndGet(stateRef, updater)
+        yield* persist
+        return newState
       })
 
-      yield* Effect.log(`Updated hypothesis ${hypothesisId} - Progress: ${updates.status || 'status unchanged'}`)
-    })
+    const registerHypothesis = ({ id, slug, description }: { id: HypothesisId; slug: string; description: string }) =>
+      updateState((s) => ({
+        ...s,
+        hypotheses: {
+          ...s.hypotheses,
+          [id]: {
+            id,
+            slug,
+            description,
+            status: 'pending',
+            worktreePath: Path.join(s.workingDirectory, `${id}-${slug}`),
+            branchName: `dilagent/${s.workingDirId}/${id}-${slug}`,
+            startedAt: undefined,
+            completedAt: undefined,
+            result: undefined,
+          },
+        },
+        metrics: {
+          ...s.metrics,
+          hypothesesGenerated: s.metrics.hypothesesGenerated + 1,
+        },
+      }))
+
+    const updateHypothesis = ({ id, update }: { id: HypothesisId; update: Partial<HypothesisState> }) =>
+      updateState((s) => ({
+        ...s,
+        hypotheses: {
+          ...s.hypotheses,
+          [id]: { ...s.hypotheses[id]!, ...update },
+        },
+        // Update metrics based on status changes
+        metrics: (() => {
+          const oldStatus = s.hypotheses[id]?.status
+          const newStatus = update.status
+
+          if (oldStatus !== newStatus) {
+            const metrics = { ...s.metrics }
+
+            if (newStatus === 'completed') {
+              metrics.hypothesesCompleted += 1
+              if (update.result?._tag === 'Proven') {
+                metrics.hypothesesSuccessful += 1
+              } else {
+                metrics.hypothesesFailed += 1
+              }
+            } else if (newStatus === 'failed') {
+              metrics.hypothesesFailed += 1
+            } else if (newStatus === 'skipped') {
+              metrics.hypothesesSkipped += 1
+            }
+
+            return metrics
+          }
+
+          return s.metrics
+        })(),
+      }))
+
+    const setPhase = (phase: DilagentState['currentPhase']) =>
+      updateState((s) => ({
+        ...s,
+        currentPhase: phase,
+        completedPhases: s.completedPhases.includes(phase) ? s.completedPhases : [...s.completedPhases, phase],
+        progress: {
+          ...s.progress,
+          phase: phase,
+        },
+      }))
+
+    const updateProgress = (progress: Partial<DilagentState['progress']>) =>
+      updateState((s) => ({
+        ...s,
+        progress: {
+          ...s.progress,
+          ...progress,
+        },
+      }))
+
+    const completeRun = () =>
+      updateState((s) => ({
+        ...s,
+        currentPhase: 'completed',
+        metrics: {
+          ...s.metrics,
+          endTime: new Date().toISOString(),
+        },
+      }))
 
     return {
-      // initializeDilagentState,
-      enableAutoFlush,
-      disableAutoFlush,
-      getDilagentState,
-      updateDilagentState,
-      flushToFile,
+      getState,
+      updateState,
+      registerHypothesis,
       updateHypothesis,
+      setPhase,
+      updateProgress,
+      completeRun,
     } as const
   }),
-
-  dependencies: [],
 }) {}

@@ -113,6 +113,8 @@ const prompt = (
     // Use default model (gpt-5) for both cases since other variants are not supported
     const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
+    yield* Effect.logDebug(`[CodexLLMLive] prompt: ${input.slice(0, 100).replace(/\n/g, ' ')}...`)
+
     const writeToLogFile = yield* getWriteToLogFile(options)
 
     const command = yield* buildCommand(input, {
@@ -155,7 +157,7 @@ const prompt = (
     let finalResult = ''
     for (const line of lines) {
       try {
-        writeToLogFile(line)
+        yield* writeToLogFile(line)
 
         const event = JSON.parse(line)
         // console.log('codex event', event)
@@ -180,7 +182,7 @@ const prompt = (
     }
 
     return finalResult
-  }).pipe(Effect.withSpan('codex.execute'), logDuration('codex.execute'), Effect.scoped)
+  }).pipe(Effect.withSpan('codex.execute'), logDuration('[CodexLLMLive] prompt'), Effect.scoped)
 
 /**
  * Send a prompt to Codex and stream the response

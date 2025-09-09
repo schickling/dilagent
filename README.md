@@ -1,4 +1,4 @@
-<img src="https://gitbucket.schickling.dev/api/get/32330263261d8466bc8146badc9dabbcdbf3425a046486097f62f47c10b9cf96.png" alt="" height="200"/>
+<img src="https://gitbucket.schickling.dev/api/get/32330263261d8466bc8146badc9dabbcdbf3425a046486097f62f47c10b9cf96" alt="" height="200"/>
 
 # dilagent 🔍
 

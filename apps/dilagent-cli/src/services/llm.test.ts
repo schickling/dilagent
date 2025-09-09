@@ -6,16 +6,17 @@
  * to ensure compatibility across different LLM backends.
  */
 
+import * as os from 'node:os'
 import type { FileSystem } from '@effect/platform'
 import type { CommandExecutor } from '@effect/platform/CommandExecutor'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Chunk, Effect, Layer, ManagedRuntime, Stream } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as ClaudeProvider from './claude.ts'
-import * as CodexProvider from './codex.ts'
 import { LLMService } from './llm.ts'
 import { createMcpServerLayer } from './mcp-server.ts'
 import { StateStore } from './state-store.ts'
+import { WorkingDirService } from './working-dir.ts'
 
 const providerLayers = [
   { name: 'Claude', layer: ClaudeProvider.ClaudeLLMLive },
@@ -28,9 +29,11 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
   beforeAll(async () => {
     // Create runtime with LLM provider, MCP server, and StateStore
     const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
-    const ServiceLayer = createMcpServerLayer(3457)
-      .pipe(Layer.provideMerge(StateStore.Default))
-      .pipe(Layer.provide(PlatformLayer))
+    const ServiceLayer = createMcpServerLayer(3457).pipe(
+      Layer.provideMerge(StateStore.Default),
+      Layer.provideMerge(WorkingDirService.Default({ workingDir: os.tmpdir(), create: true })),
+      Layer.provide(PlatformLayer),
+    )
 
     runtime = ManagedRuntime.make(Layer.mergeAll(PlatformLayer, layer, ServiceLayer).pipe(Layer.orDie))
 
@@ -215,18 +218,19 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Initialize store with a hypothesis
-          const state = yield* store.getDilagentState()
-          yield* store.updateDilagentState(() => ({
+          const state = yield* store.getState()
+          yield* store.updateState(() => ({
             ...state,
-            hypotheses: [
-              {
+            hypotheses: {
+              H001: {
                 id: 'H001',
+                description: 'Test hypothesis for MCP tools',
                 slug: 'test-hypothesis',
-                branch: 'dilagent/test/H001-test-hypothesis',
-                worktree: '/tmp/test-worktree',
+                branchName: 'dilagent/test/H001-test-hypothesis',
+                worktreePath: '/tmp/test-worktree',
                 status: 'pending',
               },
-            ],
+            },
           }))
 
           // Prompt to update hypothesis status using MCP tools
@@ -243,8 +247,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           expect(result.length).toBeGreaterThan(0)
 
           // Verify the hypothesis was updated
-          const updatedState = yield* store.getDilagentState()
-          const hypothesis = updatedState.hypotheses.find((h) => h.id === 'H001')
+          const updatedState = yield* store.getState()
+          const hypothesis = updatedState.hypotheses.H001
           expect(hypothesis?.status).toBe('running')
         }),
       )
@@ -257,18 +261,19 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Initialize store with a running hypothesis
-          const state = yield* store.getDilagentState()
-          yield* store.updateDilagentState(() => ({
+          const state = yield* store.getState()
+          yield* store.updateState(() => ({
             ...state,
-            hypotheses: [
-              {
+            hypotheses: {
+              H002: {
                 id: 'H002',
+                description: 'Result hypothesis for MCP tools',
                 slug: 'result-hypothesis',
-                branch: 'dilagent/test/H002-result-hypothesis',
-                worktree: '/tmp/result-worktree',
+                branchName: 'dilagent/test/H002-result-hypothesis',
+                worktreePath: '/tmp/result-worktree',
                 status: 'running',
               },
-            ],
+            },
           }))
 
           // Prompt to set final result using MCP tools
@@ -285,10 +290,10 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           expect(result.length).toBeGreaterThan(0)
 
           // Verify the hypothesis result was set
-          const updatedState = yield* store.getDilagentState()
-          const hypothesis = updatedState.hypotheses.find((h) => h.id === 'H002')
+          const updatedState = yield* store.getState()
+          const hypothesis = updatedState.hypotheses.H002
           expect(hypothesis?.status).toBe('completed')
-          expect(hypothesis?.result).toBe('proven')
+          expect(hypothesis?.result?._tag).toBe('Proven')
         }),
       )
     })
@@ -300,26 +305,28 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Initialize store with multiple hypotheses
-          const state = yield* store.getDilagentState()
-          yield* store.updateDilagentState(() => ({
+          const state = yield* store.getState()
+          yield* store.updateState(() => ({
             ...state,
-            hypotheses: [
-              {
+            hypotheses: {
+              H003: {
                 id: 'H003',
+                description: 'First hypothesis for status all test',
                 slug: 'first-hypothesis',
-                branch: 'dilagent/test/H003-first-hypothesis',
-                worktree: '/tmp/first-worktree',
+                branchName: 'dilagent/test/H003-first-hypothesis',
+                worktreePath: '/tmp/first-worktree',
                 status: 'running',
               },
-              {
+              H004: {
                 id: 'H004',
+                description: 'Second hypothesis for status all test',
                 slug: 'second-hypothesis',
-                branch: 'dilagent/test/H004-second-hypothesis',
-                worktree: '/tmp/second-worktree',
+                branchName: 'dilagent/test/H004-second-hypothesis',
+                worktreePath: '/tmp/second-worktree',
                 status: 'completed',
-                result: 'proven',
+                result: { _tag: 'Proven' as const, hypothesisId: 'H004', findings: 'proven' },
               },
-            ],
+            },
           }))
 
           // Prompt to get all hypothesis status using MCP tools
@@ -349,32 +356,40 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           const store = yield* StateStore
 
           // Initialize store with hypotheses in various states
-          const state = yield* store.getDilagentState()
-          yield* store.updateDilagentState(() => ({
+          const state = yield* store.getState()
+          yield* store.updateState(() => ({
             ...state,
-            hypotheses: [
-              {
+            hypotheses: {
+              H005: {
                 id: 'H005',
+                description: 'Clear test hypothesis',
                 slug: 'clear-test-hypothesis',
-                branch: 'dilagent/test/H005-clear-test',
-                worktree: '/tmp/clear-worktree',
+                branchName: 'dilagent/test/H005-clear-test',
+                worktreePath: '/tmp/clear-worktree',
                 status: 'running',
               },
-              {
+              H006: {
                 id: 'H006',
+                description: 'Another clear hypothesis',
                 slug: 'another-clear-hypothesis',
-                branch: 'dilagent/test/H006-another-clear',
-                worktree: '/tmp/another-clear-worktree',
+                branchName: 'dilagent/test/H006-another-clear',
+                worktreePath: '/tmp/another-clear-worktree',
                 status: 'completed',
-                result: 'disproven',
+                result: {
+                  _tag: 'Disproven' as const,
+                  hypothesisId: 'H006',
+                  reason: 'disproven',
+                  evidence: 'test evidence',
+                  newhypothesisIdeas: [],
+                },
               },
-            ],
+            },
           }))
 
           // Verify hypotheses have some statuses before clearing
-          const stateBefore = yield* store.getDilagentState()
-          const runningBefore = stateBefore.hypotheses.filter((h) => h.status === 'running').length
-          const completedBefore = stateBefore.hypotheses.filter((h) => h.status === 'completed').length
+          const stateBefore = yield* store.getState()
+          const runningBefore = Object.values(stateBefore.hypotheses).filter((h) => h.status === 'running').length
+          const completedBefore = Object.values(stateBefore.hypotheses).filter((h) => h.status === 'completed').length
           expect(runningBefore + completedBefore).toBeGreaterThan(0)
 
           // Prompt to clear hypothesis states using MCP tools
@@ -391,8 +406,8 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           expect(result.length).toBeGreaterThan(0)
 
           // Verify all hypotheses were reset to pending
-          const stateAfter = yield* store.getDilagentState()
-          const allPending = stateAfter.hypotheses.every((h) => h.status === 'pending')
+          const stateAfter = yield* store.getState()
+          const allPending = Object.values(stateAfter.hypotheses).every((h) => h.status === 'pending')
           expect(allPending).toBe(true)
         }),
       )

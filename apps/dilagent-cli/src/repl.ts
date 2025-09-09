@@ -1,5 +1,5 @@
 import * as readline from 'node:readline'
-import { Console, Effect } from 'effect'
+import { Console, Effect, Record } from 'effect'
 import { StateStore } from './services/state-store.ts'
 
 export const parseCommand = (input: string): string => {
@@ -47,10 +47,11 @@ export interface CompleterStore {
 
 // Adapter to make StateStore compatible with CompleterStore for hypothesis IDs
 const createCompleterAdapter = (store: StateStore): CompleterStore => ({
-  keys: () => Effect.gen(function* () {
-    const state = yield* store.getDilagentState()
-    return state.hypotheses.map(h => h.id)
-  })
+  keys: () =>
+    Effect.gen(function* () {
+      const state = yield* store.getState()
+      return Record.keys(state.hypotheses)
+    }),
 })
 
 export const createCompleter =
@@ -72,23 +73,29 @@ export const createCompleter =
 
 const showHypotheses = (store: StateStore) =>
   Effect.gen(function* () {
-    const state = yield* store.getDilagentState()
-    if (state.hypotheses.length === 0) {
+    const state = yield* store.getState()
+    const hypothesesList = Object.values(state.hypotheses)
+    if (hypothesesList.length === 0) {
       yield* Console.log('No hypotheses in state')
     } else {
       yield* Console.log('Current hypotheses:')
-      for (const hypothesis of state.hypotheses) {
-        const statusIcon = 
+      for (const hypothesis of hypothesesList) {
+        const statusIcon =
           hypothesis.status === 'completed'
-            ? hypothesis.result === 'proven' ? '✅' 
-              : hypothesis.result === 'disproven' ? '❌'
-              : '❔'
-            : hypothesis.status === 'running' ? '🔄' : '⏸️'
-        
+            ? hypothesis.result?._tag === 'Proven'
+              ? '✅'
+              : hypothesis.result?._tag === 'Disproven'
+                ? '❌'
+                : '❔'
+            : hypothesis.status === 'running'
+              ? '🔄'
+              : '⏸️'
+
         yield* Console.log(`  ${statusIcon} ${hypothesis.id}: ${hypothesis.slug}`)
-        yield* Console.log(`     Status: ${hypothesis.status}${hypothesis.result ? ` (${hypothesis.result})` : ''}`)
-        yield* Console.log(`     Branch: ${hypothesis.branch}`)
-        yield* Console.log(`     Worktree: ${hypothesis.worktree}`)
+        yield* Console.log(
+          `     Status: ${hypothesis.status}${hypothesis.result ? ` (${hypothesis.result._tag === 'Proven' ? hypothesis.result.findings : hypothesis.result._tag === 'Disproven' ? hypothesis.result.reason : hypothesis.result.intractableReason})` : ''}`,
+        )
+        yield* Console.log(`     Worktree: ${hypothesis.worktreePath}`)
         yield* Console.log('')
       }
     }
@@ -130,16 +137,14 @@ export const runRepl = Effect.gen(function* () {
 
       case 'clear':
         // Reset all hypotheses to pending state (similar to dilagent_state_clear MCP tool)
-        yield* store.updateDilagentState((state) => ({
+        yield* store.updateState((state) => ({
           ...state,
-          hypotheses: state.hypotheses.map(h => ({
+          hypotheses: Record.map(state.hypotheses, (h) => ({
             ...h,
             status: 'pending' as const,
             result: undefined,
-            confidence: undefined,
             startedAt: undefined,
             completedAt: undefined,
-            executionTimeMs: undefined,
           })),
         }))
         yield* Console.log('All hypotheses reset to pending state')

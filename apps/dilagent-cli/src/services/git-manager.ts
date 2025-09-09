@@ -29,17 +29,14 @@ export class GitWorktreeError extends Schema.TaggedError<GitWorktreeError>()('Gi
  * - Original context directory is NEVER modified
  * - Each hypothesis runs in its own git worktree
  * - .dilagent/context-repo is always a valid git repository
- * - Branch naming: dilagent/{run-slug}/root and dilagent/{run-slug}/H{NNN}-{hypothesis-slug}
+ * - Branch naming: dilagent/main and dilagent/H{NNN}-{hypothesis-slug}
  */
 export class GitManagerService extends Effect.Service<GitManagerService>()('GitManagerService', {
   effect: Effect.gen(function* () {
-    const workingDirService = yield* WorkingDirService
-    const workingDir = workingDirService.paths.dilagent
+    const workingDir = yield* WorkingDirService
+
     /**
      * Check if a directory is a git repository
-     *
-     * @param path - Directory path to check
-     * @returns Effect that succeeds with boolean indicating if it's a git repo
      */
     const isGitRepo = Effect.fn('GitManagerService.isGitRepo')(function* (path: string) {
       yield* Effect.annotateCurrentSpan({ path })
@@ -55,9 +52,6 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
 
     /**
      * Get the root directory of a git repository
-     *
-     * @param path - Path within the git repository
-     * @returns Effect that succeeds with the root directory path
      */
     const getGitRoot = Effect.fn('GitManagerService.getGitRoot')(function* (path: string) {
       yield* Effect.annotateCurrentSpan({ path })
@@ -94,27 +88,38 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
      *
      * If context-dir is a git repo: creates worktree
      * If context-dir is not a git repo: copies files and initializes git
-     *
-     * @param contextDir - Original context directory (never modified)
-     * @param workingDir - Working directory containing .dilagent
-     * @param runSlug - Run slug for branch naming
-     * @returns Effect that succeeds when context repo is set up
      */
     const setupContextRepo = Effect.fn('GitManagerService.setupContextRepo')(function* (
       contextDir: string,
-      runSlug: string,
+      workingDirId: string,
     ) {
-      yield* Effect.annotateCurrentSpan({ contextDir, workingDir, runSlug })
+      yield* Effect.annotateCurrentSpan({ contextDir, workingDirId })
 
-      const contextRepoPath = workingDirService.paths.contextRepo
+      const contextRepoPath = workingDir.paths.contextRepo
       const isContextGitRepo = yield* isGitRepo(contextDir)
 
       if (isContextGitRepo) {
-        yield* Effect.log(`Context directory is a git repo, creating worktree`)
+        yield* Effect.logDebug(`[GitManagerService] Context directory is a git repo, creating worktree`)
 
         // Get the git root to ensure we're working with the correct repository
         const gitRoot = yield* getGitRoot(contextDir)
-        const branchName = `dilagent/${runSlug}/root`
+        // Canonicalize both paths to handle symlinks (e.g., /var -> /private/var on macOS)
+        const canonicalGitRoot = yield* Effect.try(() => require('node:fs').realpathSync(gitRoot))
+        const canonicalContextDir = yield* Effect.try(() => require('node:fs').realpathSync(contextDir))
+        const relativePath = Path.relative(canonicalGitRoot, canonicalContextDir) || '.'
+        const branchName = `dilagent/${workingDirId}/main`
+
+        yield* Effect.logDebug(`[GitManagerService] Creating worktree with branch: ${branchName}`)
+
+        // First, try to remove any existing worktree at this path (cleanup from failed runs)
+        yield* Command.exitCode(
+          Command.make('git', 'worktree', 'remove', '--force', contextRepoPath).pipe(Command.workingDirectory(gitRoot)),
+        ).pipe(
+          Effect.catchAll(() => Effect.succeed(0)), // Ignore if doesn't exist
+          Effect.tap(() =>
+            Effect.logDebug(`[GitManagerService] Cleaned up any existing worktree at ${contextRepoPath}`),
+          ),
+        )
 
         // Create worktree from the git root
         yield* Command.exitCode(
@@ -122,28 +127,54 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
             Command.workingDirectory(gitRoot),
           ),
         ).pipe(
-          Effect.catchAll(
-            (error) =>
-              new GitWorktreeError({
-                cause: error,
-                message: `Failed to create worktree at ${contextRepoPath}`,
-                worktreePath: contextRepoPath,
-              }),
+          Effect.catchAll((error) =>
+            Effect.flatMap(
+              Effect.logError(`[GitManagerService] Worktree creation failed with error: ${String(error)}`),
+              () =>
+                new GitWorktreeError({
+                  cause: error,
+                  message: `Failed to create worktree at ${contextRepoPath} with branch ${branchName}. This may be due to a branch name conflict or permission issue.`,
+                  worktreePath: contextRepoPath,
+                }),
+            ),
           ),
+          Effect.tap(() => Effect.logDebug(`[GitManagerService] Successfully created worktree`)),
         )
 
-        yield* Effect.log(`Created git worktree: ${contextRepoPath} (branch: ${branchName})`)
-      } else {
-        yield* Effect.log(`Context directory is not a git repo, copying and initializing git`)
+        yield* Effect.logDebug(`[GitManagerService] Created git worktree: ${contextRepoPath} (branch: ${branchName})`)
 
-        // Copy context directory to context-repo
-        yield* Command.exitCode(Command.make('cp', '-r', `${contextDir}/.`, contextRepoPath)).pipe(
+        return {
+          contextRepoPath,
+          relativePath,
+        }
+      } else {
+        yield* Effect.logDebug(`[GitManagerService] Context directory is not a git repo, copying and initializing git`)
+
+        // Copy context directory contents to context-repo (which already exists)
+        // Copy regular files and directories
+        yield* Command.exitCode(
+          Command.make('sh', '-c', `cp -r "${contextDir}"/* "${contextRepoPath}"/ 2>/dev/null || true`),
+        ).pipe(
           Effect.catchAll(
             (error) =>
               new GitError({
                 cause: error,
-                message: `Failed to copy context directory to ${contextRepoPath}`,
-                command: `cp -r ${contextDir}/. ${contextRepoPath}`,
+                message: `Failed to copy regular files from context directory to ${contextRepoPath}`,
+                command: `cp -r "${contextDir}"/* "${contextRepoPath}"/`,
+              }),
+          ),
+        )
+
+        // Copy hidden files and directories (dotfiles)
+        yield* Command.exitCode(
+          Command.make('sh', '-c', `cp -r "${contextDir}"/.[^.]* "${contextRepoPath}"/ 2>/dev/null || true`),
+        ).pipe(
+          Effect.catchAll(
+            (error) =>
+              new GitError({
+                cause: error,
+                message: `Failed to copy hidden files from context directory to ${contextRepoPath}`,
+                command: `cp -r "${contextDir}"/.[^.]* "${contextRepoPath}"/`,
               }),
           ),
         )
@@ -222,48 +253,52 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
           ),
         )
 
-        // Create and checkout the root branch
-        const branchName = `dilagent/${runSlug}/root`
+        // Create and checkout the main branch with unique workingDirId
+        const branchName = `dilagent/${workingDirId}/main`
         yield* Command.exitCode(
           Command.make('git', 'checkout', '-b', branchName).pipe(Command.workingDirectory(contextRepoPath)),
         ).pipe(
-          Effect.catchAll(
-            (error) =>
-              new GitError({
-                cause: error,
-                message: `Failed to create branch ${branchName} in ${contextRepoPath}`,
-                command: `git checkout -b ${branchName}`,
-                workingDir: contextRepoPath,
-              }),
+          Effect.catchAll((error) =>
+            Effect.flatMap(
+              Effect.logError(`[GitManagerService] Branch creation failed with error: ${String(error)}`),
+              () =>
+                new GitError({
+                  cause: error,
+                  message: `Failed to create branch ${branchName} in ${contextRepoPath}. This may be due to an existing branch with the same name.`,
+                  command: `git checkout -b ${branchName}`,
+                  workingDir: contextRepoPath,
+                }),
+            ),
           ),
+          Effect.tap(() => Effect.logDebug(`[GitManagerService] Successfully created branch ${branchName}`)),
         )
 
         yield* Effect.log(`Initialized git repo: ${contextRepoPath} (branch: ${branchName})`)
+
+        return {
+          contextRepoPath,
+          relativePath: '.', // Context directory is the root of the new git repo
+        }
       }
     })
 
     /**
      * Create a hypothesis-specific worktree
-     *
-     * @param workingDir - Working directory containing .dilagent
-     * @param runSlug - Run slug for branch naming
-     * @param hypothesisId - Hypothesis ID (e.g., "H001")
-     * @param hypothesisSlug - Hypothesis slug (e.g., "auth-bug-fix")
-     * @returns Effect that succeeds when worktree is created
      */
-    const createHypothesisWorktree = Effect.fn('GitManagerService.createHypothesisWorktree')(function* (
-      workingDir: string,
-      runSlug: string,
-      hypothesisId: string,
-      hypothesisSlug: string,
-    ) {
-      yield* Effect.annotateCurrentSpan({ workingDir, runSlug, hypothesisId, hypothesisSlug })
+    const createHypothesisWorktree = Effect.fn('GitManagerService.createHypothesisWorktree')(function* ({
+      hypothesisId,
+      hypothesisSlug,
+      workingDirId,
+    }: {
+      hypothesisId: string
+      hypothesisSlug: string
+      workingDirId: string
+    }) {
+      yield* Effect.annotateCurrentSpan({ hypothesisId, hypothesisSlug, workingDirId })
 
-      const contextRepoPath = Path.join(workingDir, '.dilagent', 'context-repo')
-      // TODO bring back the hypothesis slug
-      // const worktreePath = Path.join(workingDir, `${hypothesisId}-${hypothesisSlug}`)
-      const worktreePath = Path.join(workingDir, `${hypothesisId}`)
-      const branchName = `dilagent/${runSlug}/${hypothesisId}-${hypothesisSlug}`
+      const contextRepoPath = workingDir.paths.contextRepo
+      const worktreePath = Path.join(workingDir.workingDir, `${hypothesisId}-${hypothesisSlug}`)
+      const branchName = `dilagent/${workingDirId}/${hypothesisId}-${hypothesisSlug}`
 
       // Verify context-repo exists and is a git repo
       const isContextRepo = yield* isGitRepo(contextRepoPath)
@@ -274,35 +309,52 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
         })
       }
 
+      // Create the .dilagent hypothesis directory
+      yield* workingDir.ensureHypothesisDir({ hypothesisId, hypothesisSlug })
+
+      yield* Effect.logDebug(`[GitManagerService] Creating hypothesis worktree: ${branchName} at ${worktreePath}`)
+
+      // First, try to remove any existing worktree at this path (cleanup from failed runs)
+      yield* Command.exitCode(
+        Command.make('git', 'worktree', 'remove', '--force', worktreePath).pipe(
+          Command.workingDirectory(contextRepoPath),
+        ),
+      ).pipe(
+        Effect.catchAll(() => Effect.succeed(0)), // Ignore if doesn't exist
+        Effect.tap(() =>
+          Effect.logDebug(`[GitManagerService] Cleaned up any existing hypothesis worktree at ${worktreePath}`),
+        ),
+      )
+
       // Create worktree for hypothesis
       yield* Command.exitCode(
         Command.make('git', 'worktree', 'add', '-b', branchName, worktreePath, 'HEAD').pipe(
           Command.workingDirectory(contextRepoPath),
         ),
       ).pipe(
-        Effect.catchAll(
-          (error) =>
-            new GitWorktreeError({
-              cause: error,
-              message: `Failed to create hypothesis worktree at ${worktreePath}`,
-              worktreePath,
-            }),
+        Effect.catchAll((error) =>
+          Effect.flatMap(
+            Effect.logError(`[GitManagerService] Hypothesis worktree creation failed with error: ${String(error)}`),
+            () =>
+              new GitWorktreeError({
+                cause: error,
+                message: `Failed to create hypothesis worktree at ${worktreePath} with branch ${branchName}. This may be due to a branch name conflict or disk space issue.`,
+                worktreePath,
+              }),
+          ),
         ),
+        Effect.tap(() => Effect.logDebug(`[GitManagerService] Successfully created hypothesis worktree`)),
       )
 
-      yield* Effect.log(`Created hypothesis worktree: ${worktreePath} (branch: ${branchName})`)
+      yield* Effect.logDebug(`[GitManagerService] Created hypothesis worktree: ${worktreePath} (branch: ${branchName})`)
+      return worktreePath
     })
 
     /**
      * List all git worktrees in context-repo
-     *
-     * @param workingDir - Working directory containing .dilagent
-     * @returns Effect that succeeds with array of worktree info
      */
-    const listWorktrees = Effect.fn('GitManagerService.listWorktrees')(function* (workingDir: string) {
-      yield* Effect.annotateCurrentSpan({ workingDir })
-
-      const contextRepoPath = Path.join(workingDir, '.dilagent', 'context-repo')
+    const listWorktrees = Effect.fn('GitManagerService.listWorktrees')(function* () {
+      const contextRepoPath = workingDir.paths.contextRepo
 
       const result = yield* Command.string(
         Command.make('git', 'worktree', 'list', '--porcelain').pipe(Command.workingDirectory(contextRepoPath)),
@@ -351,18 +403,11 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
 
     /**
      * Remove a git worktree
-     *
-     * @param workingDir - Working directory containing .dilagent
-     * @param worktreePath - Path to the worktree to remove
-     * @returns Effect that succeeds when worktree is removed
      */
-    const removeWorktree = Effect.fn('GitManagerService.removeWorktree')(function* (
-      workingDir: string,
-      worktreePath: string,
-    ) {
-      yield* Effect.annotateCurrentSpan({ workingDir, worktreePath })
+    const removeWorktree = Effect.fn('GitManagerService.removeWorktree')(function* (worktreePath: string) {
+      yield* Effect.annotateCurrentSpan({ worktreePath })
 
-      const contextRepoPath = Path.join(workingDir, '.dilagent', 'context-repo')
+      const contextRepoPath = workingDir.paths.contextRepo
 
       yield* Command.exitCode(
         Command.make('git', 'worktree', 'remove', worktreePath).pipe(Command.workingDirectory(contextRepoPath)),
@@ -378,14 +423,11 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
         ),
       )
 
-      yield* Effect.log(`Removed worktree: ${worktreePath}`)
+      yield* Effect.logDebug(`[GitManagerService] Removed worktree: ${worktreePath}`)
     })
 
     /**
      * Get the current branch name in a git repository
-     *
-     * @param repoPath - Path to the git repository
-     * @returns Effect that succeeds with the current branch name
      */
     const getCurrentBranch = Effect.fn('GitManagerService.getCurrentBranch')(function* (repoPath: string) {
       yield* Effect.annotateCurrentSpan({ repoPath })
@@ -417,6 +459,4 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
       getCurrentBranch,
     } as const
   }),
-
-  dependencies: [],
 }) {}
