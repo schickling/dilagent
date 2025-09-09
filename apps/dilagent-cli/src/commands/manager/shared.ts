@@ -19,6 +19,7 @@ import { LLMService } from '../../services/llm.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
+import { createPhaseEvent, createHypothesisEvent } from '../../schemas/file-management.ts'
 import { parseJsonLlmResponse } from '../../utils/schema-utils.ts'
 import { hypothesisCommand } from '../hypothesis.ts'
 
@@ -96,10 +97,12 @@ export const generateHypotheses = ({
     const contextDir = workingDirService.paths.contextRepo
 
     // Record timeline event
-    yield* timelineService.recordEvent({
-      event: 'phase.started',
-      phase: 'hypothesis-generation',
-    })
+    yield* timelineService.recordEvent(
+      createPhaseEvent({
+        event: 'phase.started',
+        phase: 'hypothesis-generation',
+      }),
+    )
 
     // Check for existing reproduction results
     const artifactsDir = workingDirService.paths.artifacts
@@ -168,11 +171,14 @@ export const generateHypotheses = ({
     const hypothesesJson = yield* Schema.encode(Schema.parseJson(Schema.Array(HypothesisInputSchema)))(hypotheses)
     yield* fs.writeFileString(hypothesesFile, hypothesesJson)
 
-    yield* timelineService.recordEvent({
-      event: 'hypothesis.generated',
-      phase: 'hypothesis-generation',
-      details: { count: hypotheses.length },
-    })
+    yield* timelineService.recordEvent(
+      createHypothesisEvent({
+        event: 'hypothesis.generated',
+        phase: 'hypothesis-generation',
+        details: { count: hypotheses.length },
+        // No hypothesisId since this is about generating multiple hypotheses
+      }),
+    )
 
     yield* Effect.logDebug(`Saved ${hypotheses.length} hypotheses to ${hypothesesFile}`)
 

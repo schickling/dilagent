@@ -8,6 +8,7 @@ import {
   reproductionSystemPrompt,
 } from '../../prompts/reproduction.ts'
 import { ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
+import { createPhaseEvent, createSystemEvent } from '../../schemas/file-management.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
 import { LLMService } from '../../services/llm.ts'
@@ -161,10 +162,12 @@ const reproduceIssue = ({
     const contextDir = workingDirService.paths.contextRepo
 
     // Initialize timeline
-    yield* timelineService.recordEvent({
-      event: 'phase.started',
-      phase: 'setup',
-    })
+    yield* timelineService.recordEvent(
+      createPhaseEvent({
+        event: 'phase.started',
+        phase: 'setup',
+      }),
+    )
 
     // Check for existing reproduction results
     const reproductionJson = yield* fs
@@ -195,10 +198,12 @@ const reproduceIssue = ({
           })
 
     yield* Effect.logDebug('[manager repro] Starting issue reproduction...')
-    yield* timelineService.recordEvent({
-      event: 'system.initialized',
-      phase: 'setup',
-    })
+    yield* timelineService.recordEvent(
+      createSystemEvent({
+        event: 'system.initialized',
+        phase: 'setup',
+      }),
+    )
 
     const reproductionResult = yield* llm
       .prompt(prompt, {
@@ -221,14 +226,16 @@ const reproduceIssue = ({
     yield* fs.writeFileString(reproductionFile, reproductionJsonContent)
 
     // Record timeline event
-    yield* timelineService.recordEvent({
-      event: reproductionResult._tag === 'Success' ? 'phase.completed' : 'phase.failed',
-      phase: 'setup',
-      details:
-        reproductionResult._tag === 'Success'
-          ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
-          : undefined,
-    })
+    const details = reproductionResult._tag === 'Success' 
+      ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
+      : undefined
+    yield* timelineService.recordEvent(
+      createPhaseEvent({
+        event: reproductionResult._tag === 'Success' ? 'phase.completed' : 'phase.failed',
+        phase: 'setup',
+        ...(details && { details }),  // Only include details if not undefined
+      }),
+    )
 
     // Update StateStore with reproduction results
     yield* stateStore.updateState((state) => ({

@@ -78,7 +78,7 @@ const prompt = (
       const last = yield* promptStream(input, options).pipe(
         // TODO map to better log output
         Stream.tap((_) => writeToLogFile(_)),
-        Stream.mapEffect(Schema.decode(Schema.parseJson(ClaudeCodeMessage))),
+        Stream.mapEffect(Schema.decode(Schema.parseJson(ClaudeCodeMessage), { errors: 'all' })),
         Stream.mapError(
           (cause) =>
             new LLMError({

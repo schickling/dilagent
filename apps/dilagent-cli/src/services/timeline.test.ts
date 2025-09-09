@@ -6,7 +6,12 @@ import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Effect, Layer, ManagedRuntime, Schema } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Timeline } from '../schemas/file-management.ts'
-import { Timeline as TimelineSchema } from '../schemas/file-management.ts'
+import {
+  createHypothesisEvent,
+  createPhaseEvent,
+  createSystemEvent,
+  Timeline as TimelineSchema,
+} from '../schemas/file-management.ts'
 import { TimelineService } from './timeline.ts'
 import { WorkingDirService } from './working-dir.ts'
 
@@ -47,15 +52,16 @@ describe('TimelineService', () => {
     createdAt: '2025-09-07T12:34:56Z',
     events: [
       {
+        ...createPhaseEvent({ event: 'phase.started', phase: 'setup' }),
         timestamp: '2025-09-07T12:35:00Z',
-        event: 'phase.started',
-        phase: 'setup',
       },
       {
+        ...createHypothesisEvent({
+          event: 'hypothesis.started',
+          hypothesisId: 'H001',
+          phase: 'hypothesis-testing',
+        }),
         timestamp: '2025-09-07T12:36:00Z',
-        event: 'hypothesis.started',
-        hypothesisId: 'H001',
-        phase: 'hypothesis-testing',
       },
     ],
   })
@@ -109,19 +115,24 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Record an event
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          phase: 'hypothesis-testing',
-          hypothesisId: 'H001',
-        })
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            phase: 'hypothesis-testing',
+            hypothesisId: 'H001',
+          }),
+        )
 
         const timeline = yield* timelineService.getTimeline()
         expect(timeline.events).toHaveLength(1)
 
         const event = timeline.events[0]!
+        expect(event._tag).toBe('HypothesisEvent')
         expect(event.event).toBe('hypothesis.started')
         expect(event.phase).toBe('hypothesis-testing')
-        expect(event.hypothesisId).toBe('H001')
+        if (event._tag === 'HypothesisEvent') {
+          expect(event.hypothesisId).toBe('H001')
+        }
         expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/)
         expect(new Date(event.timestamp).getTime()).toBeGreaterThanOrEqual(new Date(beforeRecord).getTime())
       })
@@ -134,32 +145,45 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Record multiple events
-        yield* timelineService.recordEvent({ event: 'phase.started', phase: 'setup' })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          phase: 'hypothesis-testing',
-          hypothesisId: 'H001',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.completed',
-          phase: 'hypothesis-testing',
-        })
+        yield* timelineService.recordEvent(createPhaseEvent({ event: 'phase.started', phase: 'setup' }))
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            phase: 'hypothesis-testing',
+            hypothesisId: 'H001',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.completed',
+            phase: 'hypothesis-testing',
+          }),
+        )
 
         // Record event with details instead of metadata
-        yield* timelineService.recordEvent({
-          event: 'system.initialized',
-          phase: 'setup',
-          details: { key1: 'value1', key2: 42 },
-        })
+        yield* timelineService.recordEvent(
+          createSystemEvent({
+            event: 'system.initialized',
+            phase: 'setup',
+            details: { key1: 'value1', key2: 42 },
+          }),
+        )
 
         const timeline = yield* timelineService.getTimeline()
         expect(timeline.events).toHaveLength(4)
 
+        expect(timeline.events[0]!._tag).toBe('PhaseEvent')
         expect(timeline.events[0]!.event).toBe('phase.started')
-        expect(timeline.events[1]!.event).toBe('hypothesis.started')
-        expect(timeline.events[1]!.phase).toBe('hypothesis-testing')
-        expect(timeline.events[1]!.hypothesisId).toBe('H001')
+        const hypothesisEvent = timeline.events[1]!
+        expect(hypothesisEvent._tag).toBe('HypothesisEvent')
+        expect(hypothesisEvent.event).toBe('hypothesis.started')
+        expect(hypothesisEvent.phase).toBe('hypothesis-testing')
+        if (hypothesisEvent._tag === 'HypothesisEvent') {
+          expect(hypothesisEvent.hypothesisId).toBe('H001')
+        }
+        expect(timeline.events[2]!._tag).toBe('HypothesisEvent')
         expect(timeline.events[2]!.event).toBe('hypothesis.completed')
+        expect(timeline.events[3]!._tag).toBe('SystemEvent')
         expect(timeline.events[3]!.event).toBe('system.initialized')
         expect(timeline.events[3]!.details).toEqual({ key1: 'value1', key2: 42 })
       })
@@ -172,7 +196,7 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Try to record an invalid event (event field as number instead of string)
-        yield* timelineService.recordEvent({ event: 123 as any, phase: 'setup' })
+        yield* timelineService.recordEvent({ event: 123 as any, phase: 'setup' } as any)
       })
 
       await expect(Effect.runPromise(program.pipe(Effect.provide(runtime)))).rejects.toThrow()
@@ -185,22 +209,30 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Record events in different phases
-        yield* timelineService.recordEvent({
-          event: 'phase.started',
-          phase: 'setup',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          phase: 'hypothesis-generation',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          phase: 'hypothesis-testing',
-        })
-        yield* timelineService.recordEvent({
-          event: 'phase.started',
-          phase: 'setup',
-        })
+        yield* timelineService.recordEvent(
+          createPhaseEvent({
+            event: 'phase.started',
+            phase: 'setup',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            phase: 'hypothesis-generation',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            phase: 'hypothesis-testing',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createPhaseEvent({
+            event: 'phase.started',
+            phase: 'setup',
+          }),
+        )
 
         // Filter by phase
         const setupEvents = yield* timelineService.getEvents({ phase: 'setup' })
@@ -222,25 +254,33 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Record events for different hypotheses
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          hypothesisId: 'H001',
-          phase: 'hypothesis-testing',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          hypothesisId: 'H002',
-          phase: 'hypothesis-testing',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.completed',
-          hypothesisId: 'H001',
-          phase: 'hypothesis-testing',
-        })
-        yield* timelineService.recordEvent({
-          event: 'system.initialized',
-          phase: 'setup',
-        })
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            hypothesisId: 'H001',
+            phase: 'hypothesis-testing',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            hypothesisId: 'H002',
+            phase: 'hypothesis-testing',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.completed',
+            hypothesisId: 'H001',
+            phase: 'hypothesis-testing',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createSystemEvent({
+            event: 'system.initialized',
+            phase: 'setup',
+          }),
+        )
 
         // Filter by hypothesis ID
         const h001Events = yield* timelineService.getEvents({ hypothesisId: 'H001' })
@@ -262,21 +302,27 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Record events
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          hypothesisId: 'H001',
-          phase: 'hypothesis-testing',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          hypothesisId: 'H001',
-          phase: 'hypothesis-generation',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          hypothesisId: 'H002',
-          phase: 'hypothesis-testing',
-        })
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            hypothesisId: 'H001',
+            phase: 'hypothesis-testing',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            hypothesisId: 'H001',
+            phase: 'hypothesis-generation',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            hypothesisId: 'H002',
+            phase: 'hypothesis-testing',
+          }),
+        )
 
         // Filter by both criteria
         const filteredEvents = yield* timelineService.getEvents({
@@ -300,7 +346,7 @@ describe('TimelineService', () => {
         const fs = yield* FileSystem.FileSystem
 
         // Record an event
-        yield* timelineService.recordEvent({ event: 'system.initialized', phase: 'setup' })
+        yield* timelineService.recordEvent(createSystemEvent({ event: 'system.initialized', phase: 'setup' }))
 
         // File should exist due to auto-persistence in TimelineService
         const fileExists = yield* fs.exists(workingDirService.paths.timelineFile)
@@ -317,7 +363,7 @@ describe('TimelineService', () => {
         const workingDir = yield* WorkingDirService
 
         // Record an event - should auto-persist
-        yield* timelineService.recordEvent({ event: 'system.initialized', phase: 'setup' })
+        yield* timelineService.recordEvent(createSystemEvent({ event: 'system.initialized', phase: 'setup' }))
 
         // File should exist and have the event
         const timelineContent = yield* fs.readFileString(workingDir.paths.timelineFile)
@@ -337,8 +383,10 @@ describe('TimelineService', () => {
         const workingDir = yield* WorkingDirService
 
         // All events auto-persist in the new architecture
-        yield* timelineService.recordEvent({ event: 'system.initialized', phase: 'setup' })
-        yield* timelineService.recordEvent({ event: 'hypothesis.started', phase: 'hypothesis-testing' })
+        yield* timelineService.recordEvent(createSystemEvent({ event: 'system.initialized', phase: 'setup' }))
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({ event: 'hypothesis.started', phase: 'hypothesis-testing' }),
+        )
 
         // File should have both events
         const timelineContent = yield* fs.readFileString(workingDir.paths.timelineFile)
@@ -361,8 +409,10 @@ describe('TimelineService', () => {
         const workingDir = yield* WorkingDirService
 
         // All events auto-persist in the new architecture
-        yield* timelineService.recordEvent({ event: 'system.initialized', phase: 'setup' })
-        yield* timelineService.recordEvent({ event: 'hypothesis.started', phase: 'hypothesis-testing' })
+        yield* timelineService.recordEvent(createSystemEvent({ event: 'system.initialized', phase: 'setup' }))
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({ event: 'hypothesis.started', phase: 'hypothesis-testing' }),
+        )
 
         // File should already have both events
         const timelineContent = yield* fs.readFileString(workingDir.paths.timelineFile)
@@ -394,25 +444,33 @@ describe('TimelineService', () => {
         const timelineService = yield* TimelineService
 
         // Record events with different phases and hypotheses
-        yield* timelineService.recordEvent({
-          event: 'phase.started',
-          phase: 'setup',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          hypothesisId: 'H001',
-          phase: 'hypothesis-testing',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.completed',
-          hypothesisId: 'H001',
-          phase: 'hypothesis-testing',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          hypothesisId: 'H002',
-          phase: 'hypothesis-testing',
-        })
+        yield* timelineService.recordEvent(
+          createPhaseEvent({
+            event: 'phase.started',
+            phase: 'setup',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            hypothesisId: 'H001',
+            phase: 'hypothesis-testing',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.completed',
+            hypothesisId: 'H001',
+            phase: 'hypothesis-testing',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            hypothesisId: 'H002',
+            phase: 'hypothesis-testing',
+          }),
+        )
 
         const stats = yield* timelineService.getStatistics()
 
@@ -457,20 +515,26 @@ describe('TimelineService', () => {
         const fs = yield* FileSystem.FileSystem
 
         // Record various events (all auto-persist)
-        yield* timelineService.recordEvent({
-          event: 'system.initialized',
-          phase: 'setup',
-        })
-        yield* timelineService.recordEvent({
-          event: 'phase.started',
-          phase: 'setup',
-        })
-        yield* timelineService.recordEvent({
-          event: 'hypothesis.started',
-          hypothesisId: 'H001',
-          phase: 'hypothesis-testing',
-          details: { confidence: 0.8 },
-        })
+        yield* timelineService.recordEvent(
+          createSystemEvent({
+            event: 'system.initialized',
+            phase: 'setup',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createPhaseEvent({
+            event: 'phase.started',
+            phase: 'setup',
+          }),
+        )
+        yield* timelineService.recordEvent(
+          createHypothesisEvent({
+            event: 'hypothesis.started',
+            hypothesisId: 'H001',
+            phase: 'hypothesis-testing',
+            details: { confidence: 0.8 },
+          }),
+        )
 
         // Verify file was written correctly via auto-persist
         const timelineContent = yield* fs.readFileString(workingDirService.paths.timelineFile)

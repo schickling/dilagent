@@ -10,6 +10,7 @@ import { createMcpServerLayer } from '../../services/mcp-server.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
+import { createPhaseEvent } from '../../schemas/file-management.ts'
 import {
   cwdOption,
   llmOption,
@@ -70,10 +71,12 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
         yield* Effect.logDebug(`[manager run-hypotheses] Context directory: ${resolvedContextDirectory}`)
 
         // Record timeline event
-        yield* timelineService.recordEvent({
-          event: 'phase.started',
-          phase: 'hypothesis-testing',
-        })
+        yield* timelineService.recordEvent(
+          createPhaseEvent({
+            event: 'phase.started',
+            phase: 'hypothesis-testing',
+          }),
+        )
 
         // Load hypotheses from canonical location
         const hypotheses = yield* loadExperiments()
@@ -104,10 +107,12 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
         yield* fiber
 
         // Record phase completion
-        yield* timelineService.recordEvent({
-          event: 'phase.completed',
-          phase: 'hypothesis-testing',
-        })
+        yield* timelineService.recordEvent(
+          createPhaseEvent({
+            event: 'phase.completed',
+            phase: 'hypothesis-testing',
+          }),
+        )
       }).pipe(
         Effect.provide(
           Layer.provideMerge(

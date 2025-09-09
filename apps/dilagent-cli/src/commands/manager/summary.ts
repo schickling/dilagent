@@ -5,6 +5,7 @@ import { Effect, Layer, Option } from 'effect'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
+import { createPhaseEvent } from '../../schemas/file-management.ts'
 import { cwdOption, workingDirectoryOption } from './shared.ts'
 
 /**
@@ -49,17 +50,19 @@ export const summaryCommand = Cli.Command.make(
       const totalWorkflowTime = startEvent ? currentTime - new Date(startEvent.timestamp).getTime() : undefined
 
       // Record workflow completion event
-      yield* timelineService.recordEvent({
-        event: 'phase.completed',
-        phase: 'completed',
-        details: {
-          totalExecutionTimeMs: totalWorkflowTime,
-          hypothesesGenerated: state.metrics.hypothesesGenerated,
-          hypothesesCompleted: state.metrics.hypothesesCompleted,
-          hypothesesSuccessful: state.metrics.hypothesesSuccessful,
-          hypothesesFailed: state.metrics.hypothesesFailed,
-        },
-      })
+      yield* timelineService.recordEvent(
+        createPhaseEvent({
+          event: 'phase.completed',
+          phase: 'completed',
+          details: {
+            totalExecutionTimeMs: totalWorkflowTime,
+            hypothesesGenerated: state.metrics.hypothesesGenerated,
+            hypothesesCompleted: state.metrics.hypothesesCompleted,
+            hypothesesSuccessful: state.metrics.hypothesesSuccessful,
+            hypothesesFailed: state.metrics.hypothesesFailed,
+          },
+        }),
+      )
 
       // Update state to completed
       yield* stateStore.completeRun()

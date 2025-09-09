@@ -64,8 +64,11 @@ The process continues iteratively until the root cause is found and validated.
 # Install
 npm install -g dilagent
 
+# Stage 0: Setup
+dilagent manager setup
+
 # Stage 1: Reproduce an issue
-dilagent manager repro --issue "Data inconsistency after concurrent updates"
+dilagent manager repro
 
 # Stage 2: Generate hypotheses
 dilagent manager generate-hypotheses
@@ -73,11 +76,11 @@ dilagent manager generate-hypotheses
 # Stage 3: Test hypotheses in parallel
 dilagent manager run-hypotheses
 
+# Stage 4: Generate summary
+dilagent manager summary
+
 # Or run the full pipeline
 dilagent manager all ... # see `dilagent manager all --help` for options
-
-# Interactive debugging if needed
-dilagent manager repl
 ```
 
 ## Requirements

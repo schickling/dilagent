@@ -19,8 +19,8 @@ export const ToolName = Schema.Union(
     'BashOutput',
     'KillBash',
   ),
-  Schema.TemplateLiteral(Schema.Literal('mcp__playwright__'), Schema.String),
-  Schema.TemplateLiteral(Schema.Literal('mcp__ide__'), Schema.String),
+  // Fallback for custom tools
+  Schema.String,
 )
 
 export type ToolName = typeof ToolName.Type
@@ -115,10 +115,10 @@ export const SystemInitMessage = Schema.Struct({
   mcp_servers: Schema.Array(McpServer),
   model: Schema.String,
   permissionMode: Schema.Literal('default', 'acceptEdits', 'bypassPermissions', 'plan'),
-  slash_commands: Schema.Array(SlashCommand),
+  slash_commands: Schema.optional(Schema.Array(SlashCommand)),
   apiKeySource: Schema.Literal('none', 'user', 'project', 'org', 'temporary'),
-  output_style: Schema.String,
-  uuid: Schema.String,
+  output_style: Schema.optional(Schema.String),
+  uuid: Schema.optional(Schema.String),
 })
 
 export type SystemInitMessage = typeof SystemInitMessage.Type

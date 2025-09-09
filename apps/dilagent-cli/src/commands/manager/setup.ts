@@ -5,6 +5,7 @@ import { GitManagerService } from '../../services/git-manager.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
+import { createPhaseEvent } from '../../schemas/file-management.ts'
 import { contextDirectoryOption, cwdOption, promptOption, workingDirectoryOption } from './shared.ts'
 
 export const setupCommand = Cli.Command.make(
@@ -42,14 +43,16 @@ export const setupCommand = Cli.Command.make(
       yield* Effect.logDebug(`[manager setup] Problem: ${problemPrompt}`)
 
       // Record setup initialization
-      yield* timelineService.recordEvent({
-        event: 'phase.started',
-        phase: 'setup',
-        details: {
-          contextDirectory: resolvedContextDirectory,
-          workingDirectory: resolvedWorkingDirectory,
-        },
-      })
+      yield* timelineService.recordEvent(
+        createPhaseEvent({
+          event: 'phase.started',
+          phase: 'setup',
+          details: {
+            contextDirectory: resolvedContextDirectory,
+            workingDirectory: resolvedWorkingDirectory,
+          },
+        }),
+      )
 
       // Setup git context repository
       yield* Effect.logDebug(`[manager setup] 📁 Setting up context repository from: ${resolvedContextDirectory}`)
@@ -78,14 +81,16 @@ export const setupCommand = Cli.Command.make(
       }))
 
       // Record successful setup completion
-      yield* timelineService.recordEvent({
-        event: 'phase.completed',
-        phase: 'setup',
-        details: {
-          contextDirectory: resolvedContextDirectory,
-          workingDirectory: resolvedWorkingDirectory,
-        },
-      })
+      yield* timelineService.recordEvent(
+        createPhaseEvent({
+          event: 'phase.completed',
+          phase: 'setup',
+          details: {
+            contextDirectory: resolvedContextDirectory,
+            workingDirectory: resolvedWorkingDirectory,
+          },
+        }),
+      )
 
       yield* Effect.logDebug('[manager setup] ✅ Dilagent workspace setup complete!')
       yield* Effect.logDebug(`[manager setup]   Working directory: ${resolvedWorkingDirectory}`)

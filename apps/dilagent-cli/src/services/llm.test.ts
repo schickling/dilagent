@@ -13,6 +13,7 @@ import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Chunk, Effect, Layer, ManagedRuntime, Stream } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as ClaudeProvider from './claude.ts'
+import * as CodexProvider from './codex.ts'
 import { LLMService } from './llm.ts'
 import { createMcpServerLayer } from './mcp-server.ts'
 import { StateStore } from './state-store.ts'
@@ -20,7 +21,7 @@ import { WorkingDirService } from './working-dir.ts'
 
 const providerLayers = [
   { name: 'Claude', layer: ClaudeProvider.ClaudeLLMLive },
-  // { name: 'Codex', layer: CodexProvider.CodexLLMLive },
+  { name: 'Codex', layer: CodexProvider.CodexLLMLive },
 ]
 
 describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer }) => {
