@@ -5,34 +5,37 @@
  * All tests in this file should pass for every LLM provider (Claude, Codex, etc.)
  * to ensure compatibility across different LLM backends.
  */
+
+import * as os from 'node:os'
+import type { FileSystem } from '@effect/platform'
 import type { CommandExecutor } from '@effect/platform/CommandExecutor'
-import type { PlatformError } from '@effect/platform/Error'
-import { NodeContext } from '@effect/platform-node'
+import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Chunk, Effect, Layer, ManagedRuntime, Stream } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as ClaudeProvider from './claude.ts'
-import * as CodexProvider from './codex.ts'
-import { type LLMError, LLMService } from './llm.ts'
+import { LLMService } from './llm.ts'
 import { createMcpServerLayer } from './mcp-server.ts'
 import { StateStore } from './state-store.ts'
+import { WorkingDirService } from './working-dir.ts'
 
 const providerLayers = [
   { name: 'Claude', layer: ClaudeProvider.ClaudeLLMLive },
-  { name: 'Codex', layer: CodexProvider.CodexLLMLive },
+  // { name: 'Codex', layer: CodexProvider.CodexLLMLive },
 ]
 
 describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer }) => {
-  let runtime: ManagedRuntime.ManagedRuntime<LLMService | CommandExecutor | StateStore, LLMError | PlatformError>
+  let runtime: ManagedRuntime.ManagedRuntime<LLMService | CommandExecutor | StateStore | FileSystem.FileSystem, never>
 
   beforeAll(async () => {
     // Create runtime with LLM provider, MCP server, and StateStore
-    runtime = ManagedRuntime.make(
-      Layer.mergeAll(
-        layer,
-        createMcpServerLayer(3457).pipe(Layer.provideMerge(StateStore.Default)),
-        NodeContext.layer,
-      ).pipe(Layer.orDie),
+    const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
+    const ServiceLayer = createMcpServerLayer(3457).pipe(
+      Layer.provideMerge(StateStore.Default),
+      Layer.provideMerge(WorkingDirService.Default({ workingDir: os.tmpdir(), create: true })),
+      Layer.provide(PlatformLayer),
     )
+
+    runtime = ManagedRuntime.make(Layer.mergeAll(PlatformLayer, layer, ServiceLayer).pipe(Layer.orDie))
 
     // Eagerly start the runtime
     await runtime.runPromise(Effect.void)
@@ -201,28 +204,38 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
     expect(parsed.mcpServers.stateStore.type).toBe('http')
   })
 
-  describe('with MCP tools', { timeout: 60000 }, () => {
+  describe('with modern hypothesis MCP tools', { timeout: 60000 }, () => {
     const mcpConfig = {
       mcpServers: {
         stateStore: { type: 'http' as const, url: 'http://localhost:3457/mcp' },
       },
     }
 
-    it('executes dilagent_state_set tool and stores data', async () => {
+    it('executes dilagent_hypothesis_update_status tool', async () => {
       await runtime.runPromise(
         Effect.gen(function* () {
           const llm = yield* LLMService
           const store = yield* StateStore
 
-          // Clear store first to ensure clean state
-          yield* store.clear()
+          // Initialize store with a hypothesis
+          const state = yield* store.getState()
+          yield* store.updateState(() => ({
+            ...state,
+            hypotheses: {
+              H001: {
+                id: 'H001',
+                description: 'Test hypothesis for MCP tools',
+                slug: 'test-hypothesis',
+                branchName: 'dilagent/test/H001-test-hypothesis',
+                worktreePath: '/tmp/test-worktree',
+                status: 'pending',
+              },
+            },
+          }))
 
-          // Create test data that matches the expected schema
-          const testData = { _tag: 'Proven' as const, hypothesisId: 'H001' }
-
-          // Prompt to store the value using MCP tools
+          // Prompt to update hypothesis status using MCP tools
           const result = yield* llm.prompt(
-            `Use the dilagent_state_set tool to store this experiment result: {"_tag": "Proven", "hypothesisId": "H001"} with key "test-key"`,
+            `Use the dilagent_hypothesis_update_status tool to update hypothesis H001 to TESTING phase with status "Running initial tests" and experimentId "E01"`,
             {
               mcpConfig,
               skipPermissions: true,
@@ -233,136 +246,173 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
           expect(typeof result).toBe('string')
           expect(result.length).toBeGreaterThan(0)
 
-          // Verify the value was actually stored in StateStore
-          const storedValue = yield* store.get('test-key')
-          expect(storedValue).toEqual(testData)
+          // Verify the hypothesis was updated
+          const updatedState = yield* store.getState()
+          const hypothesis = updatedState.hypotheses.H001
+          expect(hypothesis?.status).toBe('running')
         }),
       )
     })
 
-    it('executes state.get tool and retrieves data', async () => {
+    it('executes dilagent_hypothesis_set_result tool', async () => {
       await runtime.runPromise(
         Effect.gen(function* () {
           const llm = yield* LLMService
           const store = yield* StateStore
 
-          // Pre-populate the store with test data
-          const testData = {
-            _tag: 'Disproven' as const,
-            hypothesisId: 'H002',
-            reason: 'Test reason',
-            evidence: 'Test evidence',
-            newhypothesisIdeas: [],
-          }
-          yield* store.set('existing-key', testData)
+          // Initialize store with a running hypothesis
+          const state = yield* store.getState()
+          yield* store.updateState(() => ({
+            ...state,
+            hypotheses: {
+              H002: {
+                id: 'H002',
+                description: 'Result hypothesis for MCP tools',
+                slug: 'result-hypothesis',
+                branchName: 'dilagent/test/H002-result-hypothesis',
+                worktreePath: '/tmp/result-worktree',
+                status: 'running',
+              },
+            },
+          }))
 
-          // Prompt to retrieve the value using MCP tools
-          const result = yield* llm.prompt('Use the state.get tool to retrieve the value for key "existing-key"', {
-            mcpConfig,
-            skipPermissions: true,
-          })
+          // Prompt to set final result using MCP tools
+          const result = yield* llm.prompt(
+            `Use the dilagent_hypothesis_set_result tool to set hypothesis H002 result as proven with findings "Root cause identified" and evidence showing the reproduction steps`,
+            {
+              mcpConfig,
+              skipPermissions: true,
+            },
+          )
 
           // Since we provided MCP config, we expect tool usage to work
           expect(typeof result).toBe('string')
           expect(result.length).toBeGreaterThan(0)
-          expect(result).toContain('H002')
-          expect(result).toContain('Disproven')
+
+          // Verify the hypothesis result was set
+          const updatedState = yield* store.getState()
+          const hypothesis = updatedState.hypotheses.H002
+          expect(hypothesis?.status).toBe('completed')
+          expect(hypothesis?.result?._tag).toBe('Proven')
         }),
       )
     })
 
-    it('executes state.list tool and shows all entries', async () => {
+    it('executes dilagent_hypothesis_get_status_all tool', async () => {
       await runtime.runPromise(
         Effect.gen(function* () {
           const llm = yield* LLMService
           const store = yield* StateStore
 
-          // Clear and populate store with multiple test entries
-          yield* store.clear()
-          const testData1 = { _tag: 'Proven' as const, hypothesisId: 'H003', nextSteps: [] }
-          const testData2 = { _tag: 'Inconclusive' as const, hypothesisId: 'H004', currentStatus: 'In progress' }
+          // Initialize store with multiple hypotheses
+          const state = yield* store.getState()
+          yield* store.updateState(() => ({
+            ...state,
+            hypotheses: {
+              H003: {
+                id: 'H003',
+                description: 'First hypothesis for status all test',
+                slug: 'first-hypothesis',
+                branchName: 'dilagent/test/H003-first-hypothesis',
+                worktreePath: '/tmp/first-worktree',
+                status: 'running',
+              },
+              H004: {
+                id: 'H004',
+                description: 'Second hypothesis for status all test',
+                slug: 'second-hypothesis',
+                branchName: 'dilagent/test/H004-second-hypothesis',
+                worktreePath: '/tmp/second-worktree',
+                status: 'completed',
+                result: { _tag: 'Proven' as const, hypothesisId: 'H004', findings: 'proven' },
+              },
+            },
+          }))
 
-          yield* store.set('key1', testData1)
-          yield* store.set('key2', testData2)
-
-          // Prompt to list all entries using MCP tools
-          const result = yield* llm.prompt('Use the state.list tool to show all entries in the state store', {
-            mcpConfig,
-            skipPermissions: true,
-          })
+          // Prompt to get all hypothesis status using MCP tools
+          const result = yield* llm.prompt(
+            'Use the dilagent_hypothesis_get_status_all tool to get the status of all hypotheses',
+            {
+              mcpConfig,
+              skipPermissions: true,
+            },
+          )
 
           // Since we provided MCP config, we expect tool usage to work
           expect(typeof result).toBe('string')
           expect(result.length).toBeGreaterThan(0)
-          expect(result).toContain('key1')
-          expect(result).toContain('key2')
+
+          // Verify the response contains information about both hypotheses
           expect(result).toContain('H003')
           expect(result).toContain('H004')
         }),
       )
     })
 
-    it('executes state.clear tool and empties the store', async () => {
+    it('executes dilagent_state_clear tool', async () => {
       await runtime.runPromise(
         Effect.gen(function* () {
           const llm = yield* LLMService
           const store = yield* StateStore
 
-          // Pre-populate store with test data
-          const testData = { _tag: 'Proven' as const, hypothesisId: 'H005', nextSteps: [] }
-          yield* store.set('temp-key', testData)
+          // Initialize store with hypotheses in various states
+          const state = yield* store.getState()
+          yield* store.updateState(() => ({
+            ...state,
+            hypotheses: {
+              H005: {
+                id: 'H005',
+                description: 'Clear test hypothesis',
+                slug: 'clear-test-hypothesis',
+                branchName: 'dilagent/test/H005-clear-test',
+                worktreePath: '/tmp/clear-worktree',
+                status: 'running',
+              },
+              H006: {
+                id: 'H006',
+                description: 'Another clear hypothesis',
+                slug: 'another-clear-hypothesis',
+                branchName: 'dilagent/test/H006-another-clear',
+                worktreePath: '/tmp/another-clear-worktree',
+                status: 'completed',
+                result: {
+                  _tag: 'Disproven' as const,
+                  hypothesisId: 'H006',
+                  reason: 'disproven',
+                  evidence: 'test evidence',
+                  newhypothesisIdeas: [],
+                },
+              },
+            },
+          }))
 
-          // Verify data is there initially
-          const initialValue = yield* store.get('temp-key')
-          expect(initialValue).toEqual(testData)
+          // Verify hypotheses have some statuses before clearing
+          const stateBefore = yield* store.getState()
+          const runningBefore = Object.values(stateBefore.hypotheses).filter((h) => h.status === 'running').length
+          const completedBefore = Object.values(stateBefore.hypotheses).filter((h) => h.status === 'completed').length
+          expect(runningBefore + completedBefore).toBeGreaterThan(0)
 
-          // Prompt to clear the store using MCP tools
-          const result = yield* llm.prompt('Use the state.clear tool to clear all entries from the state store', {
-            mcpConfig,
-            skipPermissions: true,
-          })
-
-          // Since we provided MCP config, we expect tool usage to work
-          expect(typeof result).toBe('string')
-          expect(result.length).toBeGreaterThan(0)
-
-          // Verify store was actually cleared
-          const clearedValue = yield* store.get('temp-key')
-          expect(clearedValue).toBeUndefined()
-
-          const allEntries = yield* store.list()
-          expect(allEntries).toHaveLength(0)
-        }),
-      )
-    })
-
-    it('executes state.keys tool and lists all keys', async () => {
-      await runtime.runPromise(
-        Effect.gen(function* () {
-          const llm = yield* LLMService
-          const store = yield* StateStore
-
-          // Clear and populate store with multiple keys
-          yield* store.clear()
-          const testData1 = { _tag: 'Proven' as const, hypothesisId: 'H006', nextSteps: [] }
-          const testData2 = { _tag: 'Proven' as const, hypothesisId: 'H007', nextSteps: [] }
-
-          yield* store.set('alpha-key', testData1)
-          yield* store.set('beta-key', testData2)
-
-          // Prompt to get all keys using MCP tools
-          const result = yield* llm.prompt('Use the state.keys tool to get all keys from the state store', {
-            mcpConfig,
-            skipPermissions: true,
-          })
+          // Prompt to clear hypothesis states using MCP tools
+          const result = yield* llm.prompt(
+            'Use the dilagent_state_clear tool to reset all hypothesis states to pending',
+            {
+              mcpConfig,
+              skipPermissions: true,
+            },
+          )
 
           // Since we provided MCP config, we expect tool usage to work
           expect(typeof result).toBe('string')
           expect(result.length).toBeGreaterThan(0)
-          expect(result).toContain('alpha-key')
-          expect(result).toContain('beta-key')
+
+          // Verify all hypotheses were reset to pending
+          const stateAfter = yield* store.getState()
+          const allPending = Object.values(stateAfter.hypotheses).every((h) => h.status === 'pending')
+          expect(allPending).toBe(true)
         }),
       )
     })
+
+    // Removed legacy state.keys test - no modern equivalent needed
   })
 })

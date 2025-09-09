@@ -1,6 +1,6 @@
-import type * as CommandExecutor from '@effect/platform/CommandExecutor'
+import { type CommandExecutor, FileSystem } from '@effect/platform'
 import type { PlatformError } from '@effect/platform/Error'
-import { Context, type Effect, Schema, type Stream } from 'effect'
+import { Context, Effect, Schema, type Stream } from 'effect'
 
 /**
  * Common error for LLM service failures
@@ -65,7 +65,7 @@ export interface LLMService {
   prompt(
     input: string,
     options?: LLMOptions,
-  ): Effect.Effect<string, LLMError | PlatformError, CommandExecutor.CommandExecutor>
+  ): Effect.Effect<string, LLMError | PlatformError, CommandExecutor.CommandExecutor | FileSystem.FileSystem>
 
   /**
    * Send a prompt to the LLM and stream the response
@@ -73,10 +73,21 @@ export interface LLMService {
   promptStream(
     input: string,
     options?: LLMOptions,
-  ): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor>
+  ): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor | FileSystem.FileSystem>
 }
 
 /**
  * Context tag for the LLM service
  */
 export const LLMService = Context.GenericTag<LLMService>('LLMService')
+
+export const getWriteToLogFile = (options: LLMOptions) =>
+  Effect.gen(function* () {
+    if (!options.debugLogPath) {
+      return () => Effect.void
+    }
+    const fs = yield* FileSystem.FileSystem
+    const logFile = yield* fs.open(options.debugLogPath!, { flag: 'a' })
+    const encoder = new TextEncoder()
+    return (line: string) => logFile.write(encoder.encode(`${line}\n`)).pipe(Effect.asVoid)
+  })

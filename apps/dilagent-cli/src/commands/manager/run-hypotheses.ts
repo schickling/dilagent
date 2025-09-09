@@ -5,11 +5,13 @@ import { runRepl } from '../../repl.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
 import { getFreePort } from '../../services/free-port.ts'
+import { GitManagerService } from '../../services/git-manager.ts'
 import { createMcpServerLayer } from '../../services/mcp-server.ts'
+import { StateStore } from '../../services/state-store.ts'
+import { TimelineService } from '../../services/timeline.ts'
+import { WorkingDirService } from '../../services/working-dir.ts'
 import {
-  CONTEXT_DIR,
   cwdOption,
-  DILAGENT_DIR,
   llmOption,
   loadExperiments,
   portOption,
@@ -17,6 +19,25 @@ import {
   runHypothesisWorker,
   workingDirectoryOption,
 } from './shared.ts'
+
+/**
+ * Command to execute hypothesis testing in parallel
+ *
+ * This command is responsible for:
+ * - Recording hypothesis-testing phase timeline events (start and completion)
+ * - Loading hypotheses from canonical artifacts location
+ * - Running hypothesis workers concurrently (max 4 at a time)
+ * - Starting MCP server for hypothesis worker communication
+ * - Optionally running REPL for interactive debugging
+ *
+ * Timeline events recorded:
+ * - phase.started (phase: hypothesis-testing)
+ * - phase.completed (phase: hypothesis-testing)
+ *
+ * Individual hypothesis events are recorded by runHypothesisWorker() in shared.ts
+ *
+ * Used by: all.ts workflow orchestration
+ */
 
 export const runHypothesisWorkersCommand = Cli.Command.make(
   'run-hypotheses',
@@ -30,30 +51,41 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
   ({ workingDirectory, port: portOption, llm, repl: replOption, cwd: cwdOption }) =>
     Effect.gen(function* () {
       const fallbackPort = yield* getFreePort
+
       const port = Option.getOrElse(portOption, () => fallbackPort)
+      const cwd = Option.getOrElse(cwdOption, () => process.cwd())
+      const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
 
       return yield* Effect.gen(function* () {
-        const cwd = Option.getOrElse(cwdOption, () => process.cwd())
-        const resolvedWorkingDirectory = path.resolve(cwd, workingDirectory)
-        const deebugDir = path.join(resolvedWorkingDirectory, DILAGENT_DIR)
-        const resolvedContextDirectory = path.join(deebugDir, CONTEXT_DIR)
+        yield* Effect.logDebug('[manager run-hypotheses] 🧪 Phase 3: Testing hypotheses...')
 
-        yield* Effect.log(`Working directory: ${resolvedWorkingDirectory}`)
-        yield* Effect.log(`Deebug directory: ${deebugDir}`)
-        yield* Effect.log(`Context directory: ${resolvedContextDirectory}`)
+        const workingDirService = yield* WorkingDirService
+        const timelineService = yield* TimelineService
+
+        const paths = workingDirService.paths
+        const resolvedContextDirectory = paths.contextRepo
+
+        yield* Effect.logDebug(`[manager run-hypotheses] Working directory: ${resolvedWorkingDirectory}`)
+        yield* Effect.logDebug(`[manager run-hypotheses] Dilagent directory: ${paths.dilagent}`)
+        yield* Effect.logDebug(`[manager run-hypotheses] Context directory: ${resolvedContextDirectory}`)
+
+        // Record timeline event
+        yield* timelineService.recordEvent({
+          event: 'phase.started',
+          phase: 'hypothesis-testing',
+        })
 
         // Load hypotheses from canonical location
-        const hypotheses = yield* loadExperiments(resolvedWorkingDirectory)
+        const hypotheses = yield* loadExperiments()
 
-        yield* Effect.log(
-          `Running ${hypotheses.length} hypotheses:\n${hypotheses.map((e) => `- ${e.hypothesisId}: ${e.problemTitle}`).join('\n')}`,
+        yield* Effect.logDebug(
+          `[manager run-hypotheses] Running ${hypotheses.length} hypotheses:\n${hypotheses.map((e) => `- ${e.hypothesisId}: ${e.problemTitle}`).join('\n')}`,
         )
 
         const fiber = yield* Effect.forEach(
           hypotheses,
           (hypothesis) =>
             runHypothesisWorker({
-              resolvedWorkingDirectory,
               port,
               hypothesis,
               llm,
@@ -62,16 +94,32 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
           { concurrency: 4 },
         ).pipe(Effect.tapErrorCause(Effect.logError), Effect.forkScoped)
 
-        yield* Effect.log(`Starting MCP server on port ${port}...`)
-        yield* Effect.log(`MCP endpoint: http://localhost:${port}/mcp`)
+        yield* Effect.logDebug(`[manager run-hypotheses] Starting MCP server on port ${port}...`)
+        yield* Effect.logDebug(`[manager run-hypotheses] MCP endpoint: http://localhost:${port}/mcp`)
 
         if (Option.isSome(replOption) && replOption.value) {
           yield* runRepl
         }
 
         yield* fiber
+
+        // Record phase completion
+        yield* timelineService.recordEvent({
+          event: 'phase.completed',
+          phase: 'hypothesis-testing',
+        })
       }).pipe(
-        Effect.provide(Layer.mergeAll(createMcpServerLayer(port), llm === 'claude' ? ClaudeLLMLive : CodexLLMLive)),
+        Effect.provide(
+          Layer.provideMerge(
+            createMcpServerLayer(port),
+            Layer.mergeAll(
+              llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
+              Layer.mergeAll(GitManagerService.Default, TimelineService.Default, StateStore.Default).pipe(
+                Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+              ),
+            ),
+          ),
+        ),
       )
     }),
 )

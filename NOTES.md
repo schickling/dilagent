@@ -50,12 +50,13 @@ Principled, structured debugging and root cause analysis
 ## TODO
 
 - [ ] Web UI
-- [ ] Adjust MCP tools to be event-based (instead of setting the state directly)
-- [ ] Implement git worktree support
+- [~] Implement git worktree support
   - use `git worktree` instead of copying the context directory if its a git repo
   - naming pattern for worktree branches: `diligent/
-- [ ] Refine files/folder structure
+- [~] Refine files/folder structure
+  -  centralize logs in working directory (also facilitates showing the logs in the repl/UI)
 - [ ] Run TS in experiment test loop
+- [ ] "Roundabout" prompt concept instead of prompt request->response (i.e. have an adhoc mcp server with tools for input/output schema)
 - [ ] Get rid of Inconclusive / disproven hypo results
 - [ ] Improve claude debug logfile output (currently JSONL)
 - [ ] Use repl as interactive debugger e.g. when prompt fails
@@ -68,11 +69,18 @@ Principled, structured debugging and root cause analysis
   - Define each state in the state machine
   - Want full section on solution
 - [ ] Rename to `rootcausefinder` / `diligent` / `dilagent`
+- [ ] generate more hypotheses based on other hypotheses results (via manager)
+- [ ] Readme should mention fan-out/fan-in pattern
 
 ## Other notes
 
 - In the future we might want a manager of managers (command `supervisor`)
 - Live chart of probability of each hypothesis to track over time
+- thoughts on hypo test loop
+  - each experiment run could be its own sub agent (context preserving for hypothesis loop)
+- there are legitimate cases where a certain problem can reveal multiple root causes
+  - or multiple workers could find the same root cause
+  - either way: the manager summary needs to do a good job of making sense of the results
 
 ## Concepts
 

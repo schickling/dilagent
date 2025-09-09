@@ -3,6 +3,7 @@ import { Effect } from 'effect'
 import { generateHypothesesCommand } from './generate-hypotheses.ts'
 import { reproCommand } from './repro.ts'
 import { runHypothesisWorkersCommand } from './run-hypotheses.ts'
+import { setupCommand } from './setup.ts'
 import {
   contextDirectoryOption,
   countOption,
@@ -14,6 +15,26 @@ import {
   replOption,
   workingDirectoryOption,
 } from './shared.ts'
+import { summaryCommand } from './summary.ts'
+
+/**
+ * Main orchestration command that runs the complete dilagent workflow
+ *
+ * Architecture:
+ * - This command is a PURE ORCHESTRATOR - it only calls sub-commands in sequence
+ * - Each sub-command is responsible for its own timeline event recording
+ * - Each sub-command handles its own business logic and state management
+ * - The summary command handles final workflow statistics and completion
+ *
+ * Flow:
+ * 1. setup: Initialize workspace and git repositories
+ * 2. repro: Reproduce the issue (records setup phase events)
+ * 3. generate-hypotheses: Generate testable hypotheses (records hypothesis-generation events)
+ * 4. run-hypotheses: Execute hypothesis tests in parallel (records hypothesis-testing events)
+ * 5. summary: Generate final report and statistics (records workflow completion)
+ *
+ * This approach follows single responsibility principle and avoids code duplication.
+ */
 
 export const allCommand = Cli.Command.make(
   'all',
@@ -30,32 +51,42 @@ export const allCommand = Cli.Command.make(
   },
   (options) =>
     Effect.gen(function* () {
-      // First run reproduction
-      yield* reproCommand.handler({
+      // Setup workspace
+      yield* setupCommand.handler({
         contextDirectory: options.contextDirectory,
         workingDirectory: options.workingDirectory,
         prompt: options.prompt,
+        cwd: options.cwd,
+      })
+
+      // Reproduction
+      yield* reproCommand.handler({
+        workingDirectory: options.workingDirectory,
         llm: options.llm,
         flaky: options.flaky,
         cwd: options.cwd,
       })
 
-      // Then run generate-hypotheses
+      // Hypothesis Generation
       yield* generateHypothesesCommand.handler({
-        contextDirectory: options.contextDirectory,
         workingDirectory: options.workingDirectory,
-        prompt: options.prompt,
         count: options.count,
         llm: options.llm,
         cwd: options.cwd,
       })
 
-      // Finally run run-hypotheses
+      // Hypothesis Testing
       yield* runHypothesisWorkersCommand.handler({
         workingDirectory: options.workingDirectory,
         port: options.port,
         llm: options.llm,
         repl: options.repl,
+        cwd: options.cwd,
+      })
+
+      // Generate final summary and statistics
+      yield* summaryCommand.handler({
+        workingDirectory: options.workingDirectory,
         cwd: options.cwd,
       })
     }),

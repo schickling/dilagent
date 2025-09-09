@@ -28,6 +28,7 @@ flowchart TD
                 
                 %% Counter-experiments Coordination
                 DesignCounterExperiments[Design Counter-experiments]
+                HasCounterExpDecision{{Switch: Counter-experiments Available?}}
                 RunCounterExperiments[Run Counter-experiments]
                 
                 %% Counter-experiments Container
@@ -130,7 +131,11 @@ flowchart TD
     
     %% Design Counter-experiments Flow
     DesignCounterExperiments -.->|"update"| UpdateStatus
-    DesignCounterExperiments --> RunCounterExperiments
+    DesignCounterExperiments --> HasCounterExpDecision
+    
+    %% Counter-Experiment Decision Branches
+    HasCounterExpDecision -->|"there are counter-experiments"| RunCounterExperiments
+    HasCounterExpDecision -->|"no more counter-experiments, CEs didn't invalidate"| RootCauseFound
     RunCounterExperiments -.->|"update"| UpdateStatus
     RunCounterExperiments --> DesignCounterTest
     DesignCounterTest -.->|"update"| UpdateStatus
@@ -140,9 +145,9 @@ flowchart TD
     CollectEvidenceCounter --> CEDecision
     
     %% Counter-Experiment Decision Branches (Switch)
-    CEDecision -->|"CE passed - hypothesis confirmed"| RootCauseFound
-    CEDecision -->|"inconclusive - refine"| DesignCounterTest
-    CEDecision -->|"no more counter-experiments"| RootCauseFound
+    CEDecision -->|"CE inconclusive -> refine CE"| DesignCounterTest
+    CEDecision -->|"CE passed -> next counter-experiment"| DesignCounterExperiments
+    CEDecision -->|"CE invalidated experiment -> refine experiments"| DesignExp
     
     %% Status and Reporting Flow
     UpdateStatus -.->|"writes to"| ReportMd
@@ -177,7 +182,7 @@ flowchart TD
     classDef indicatorNode fill:#fbbf24,stroke:#f59e0b,stroke-width:2px,color:#000,font-style:italic
     
     %% Apply Styles
-    class HasExpDecision,ExpDecision,CEDecision decisionNode
+    class HasExpDecision,ExpDecision,HasCounterExpDecision,CEDecision decisionNode
     class DesignExp,DesignTest,RunTest,CollectEvidence,DesignCounterTest,RunTestCounter,CollectEvidenceCounter,RunExperiments,DesignCounterExperiments,RunCounterExperiments processNode
     class UpdateStatus,ReportMd,RootCauseFound,RootCauseNotFound,ManagerMCP statusNode
     class ContextFiles,ProjectFiles,ExperimentFiles contextNode

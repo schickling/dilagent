@@ -6,6 +6,7 @@ import { ClaudeLLMLive } from '../services/claude.ts'
 import { CodexLLMLive } from '../services/codex.ts'
 import { createFileLoggerLayer } from '../services/file-logger.ts'
 import { LLMService } from '../services/llm.ts'
+import { WorkingDirService } from '../services/working-dir.ts'
 
 export const hypothesisCommand = Cli.Command.make(
   'hypothesis',
@@ -29,7 +30,7 @@ export const hypothesisCommand = Cli.Command.make(
       // const files = yield* Command.make('ls', '-la').pipe(Command.workingDirectory(resolvedWorktree), Command.string)
       // console.log(`files in ${resolvedWorktree}`, files)
 
-      const llm = yield* LLMService
+      const llmService = yield* LLMService
 
       const mcpConfig = {
         mcpServers: {
@@ -39,7 +40,7 @@ export const hypothesisCommand = Cli.Command.make(
 
       yield* Effect.log('Starting LLM prompt stream')
 
-      yield* llm
+      yield* llmService
         .promptStream(
           `Diagnose the bug in ${resolvedWorktree}. All context is in context.md. Follow the instructions in instructions.md.`,
           {
@@ -64,6 +65,16 @@ export const hypothesisCommand = Cli.Command.make(
             format: 'logfmt',
           }),
           llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
+        ).pipe(
+          Layer.provideMerge(
+            WorkingDirService.Default({
+              workingDir: path.resolve(
+                Option.getOrElse(cwdOption, () => process.cwd()),
+                worktree,
+              ),
+              create: false,
+            }),
+          ),
         ),
       ),
     ),
@@ -80,7 +91,7 @@ const validateWorktree = (worktree: string) =>
       const filePath = path.resolve(worktree, file)
       const exists = yield* fs.exists(filePath)
       if (!exists) {
-        yield* Effect.die(new Error(`File ${path} does not exist`))
+        return yield* Effect.die(new Error(`File ${filePath} does not exist`))
       }
     }
     return true

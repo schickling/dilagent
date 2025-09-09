@@ -1,13 +1,9 @@
 import * as readline from 'node:readline'
-import { Console, Effect } from 'effect'
+import { Console, Effect, Record } from 'effect'
 import { StateStore } from './services/state-store.ts'
 
-export const parseCommand = (input: string): { command: string; args: Array<string> } => {
-  const parts = input.trim().split(/\s+/)
-  return {
-    command: parts[0] || '',
-    args: parts.slice(1),
-  }
+export const parseCommand = (input: string): string => {
+  return input.trim().split(/\s+/)[0] || ''
 }
 
 const createReadlinePrompt = (
@@ -38,12 +34,8 @@ const createReadlinePrompt = (
 
 const printHelp = Console.log(`
 Available commands:
-  get <key>           - Get value for key
-  set <key> <value>   - Set key to value
-  delete <key>        - Delete a key
-  list                - List all key-value pairs
-  keys                - List all keys
-  clear               - Clear all entries
+  list                - Show all hypotheses and their status (default)
+  clear               - Reset all hypothesis states to pending
   help                - Show this help message
   exit, quit          - Exit the REPL
 `)
@@ -53,10 +45,19 @@ export interface CompleterStore {
   keys(): Effect.Effect<string[], unknown, never>
 }
 
+// Adapter to make StateStore compatible with CompleterStore for hypothesis IDs
+const createCompleterAdapter = (store: StateStore): CompleterStore => ({
+  keys: () =>
+    Effect.gen(function* () {
+      const state = yield* store.getState()
+      return Record.keys(state.hypotheses)
+    }),
+})
+
 export const createCompleter =
-  (store: CompleterStore) =>
+  (_store: CompleterStore) =>
   (line: string, callback: (err?: null | Error, result?: [string[], string]) => void): void => {
-    const commands = ['get', 'set', 'delete', 'list', 'keys', 'clear', 'help', 'exit', 'quit']
+    const commands = ['list', 'clear', 'help', 'exit', 'quit']
     const parts = line.trim().split(/\s+/)
 
     // Command completion (first word) - only when we don't have a space at the end
@@ -67,42 +68,57 @@ export const createCompleter =
       return
     }
 
-    // Key completion for get/delete commands - when we have command + space or command + partial key
-    if ((parts[0] === 'get' || parts[0] === 'delete') && (line.endsWith(' ') || parts.length >= 2)) {
-      const partial = parts[1] || ''
-
-      // Use Effect to get keys asynchronously
-      const keysEffect = store.keys()
-
-      Effect.runPromise(keysEffect)
-        .then((allKeys) => {
-          const hits = allKeys.filter((key) => key.startsWith(partial))
-          // Show all keys if no partial specified (empty string), otherwise show just hits
-          callback(null, [partial === '' ? allKeys : hits, partial])
-        })
-        .catch((_error) => {
-          // If we can't get keys, just return empty completion
-          callback(null, [[], partial])
-        })
-      return
-    }
-
     callback(null, [[], line])
   }
 
+const showHypotheses = (store: StateStore) =>
+  Effect.gen(function* () {
+    const state = yield* store.getState()
+    const hypothesesList = Object.values(state.hypotheses)
+    if (hypothesesList.length === 0) {
+      yield* Console.log('No hypotheses in state')
+    } else {
+      yield* Console.log('Current hypotheses:')
+      for (const hypothesis of hypothesesList) {
+        const statusIcon =
+          hypothesis.status === 'completed'
+            ? hypothesis.result?._tag === 'Proven'
+              ? '✅'
+              : hypothesis.result?._tag === 'Disproven'
+                ? '❌'
+                : '❔'
+            : hypothesis.status === 'running'
+              ? '🔄'
+              : '⏸️'
+
+        yield* Console.log(`  ${statusIcon} ${hypothesis.id}: ${hypothesis.slug}`)
+        yield* Console.log(
+          `     Status: ${hypothesis.status}${hypothesis.result ? ` (${hypothesis.result._tag === 'Proven' ? hypothesis.result.findings : hypothesis.result._tag === 'Disproven' ? hypothesis.result.reason : hypothesis.result.intractableReason})` : ''}`,
+        )
+        yield* Console.log(`     Worktree: ${hypothesis.worktreePath}`)
+        yield* Console.log('')
+      }
+    }
+  })
+
 export const runRepl = Effect.gen(function* () {
   const store = yield* StateStore
-  const completer = createCompleter(store)
+  const completerAdapter = createCompleterAdapter(store)
+  const completer = createCompleter(completerAdapter)
   const rl = yield* createReadlinePrompt(completer)
 
-  yield* Console.log('State Manager REPL. Type "help" for commands, "exit" to quit.')
+  yield* Console.log('Hypothesis Manager REPL. Type "help" for commands, "exit" to quit.')
   yield* Console.log('Use arrow up/down to navigate command history.')
-  yield* Console.log('Press Tab for auto-completion of commands and keys.')
+  yield* Console.log('Press Tab for auto-completion of hypothesis IDs.')
+  yield* Console.log('Press Enter to list all hypotheses.\n')
+
+  // Show hypotheses on startup
+  yield* showHypotheses(store)
 
   while (true) {
     const input = yield* Effect.promise(() => rl.prompt('> '))
 
-    const { command, args } = parseCommand(input)
+    const command = parseCommand(input)
 
     switch (command) {
       case 'exit':
@@ -115,82 +131,28 @@ export const runRepl = Effect.gen(function* () {
         yield* printHelp
         break
 
-      case 'get':
-        if (args.length !== 1) {
-          yield* Console.log('Usage: get <key>')
-        } else {
-          const key = args[0]!
-          const value = yield* store.get(key)
-          if (value === undefined) {
-            yield* Console.log(`Key "${key}" not found`)
-          } else {
-            yield* Console.log(`${key} = ${value}`)
-          }
-        }
+      case 'list':
+        yield* showHypotheses(store)
         break
-
-      case 'set':
-        if (args.length < 2) {
-          yield* Console.log('Usage: set <key> <value>')
-        } else {
-          const key = args[0]!
-          const value = args.slice(1).join(' ')
-          // For the REPL, we'll create a simple string value
-          // In a real scenario, this would need proper type handling
-          const HypothesisStatus = {
-            _tag: 'Proven' as const,
-            hypothesisId: value,
-            nextSteps: [],
-          }
-          yield* store.set(key, HypothesisStatus)
-          yield* Console.log(`Set ${key} = ${value}`)
-        }
-        break
-
-      case 'delete':
-        if (args.length !== 1) {
-          yield* Console.log('Usage: delete <key>')
-        } else {
-          const key = args[0]!
-          const deleted = yield* store.delete(key)
-          if (deleted) {
-            yield* Console.log(`Deleted key "${key}"`)
-          } else {
-            yield* Console.log(`Key "${key}" not found`)
-          }
-        }
-        break
-
-      case 'list': {
-        const entries = yield* store.list()
-        if (entries.length === 0) {
-          yield* Console.log('No entries in state store')
-        } else {
-          yield* Console.log('State store entries:')
-          for (const { key, value } of entries) {
-            yield* Console.log(`  ${key} = ${JSON.stringify(value)}`)
-          }
-        }
-        break
-      }
-
-      case 'keys': {
-        const keys = yield* store.keys()
-        if (keys.length === 0) {
-          yield* Console.log('No keys in state store')
-        } else {
-          yield* Console.log(`Keys: ${keys.join(', ')}`)
-        }
-        break
-      }
 
       case 'clear':
-        yield* store.clear()
-        yield* Console.log('State store cleared')
+        // Reset all hypotheses to pending state (similar to dilagent_state_clear MCP tool)
+        yield* store.updateState((state) => ({
+          ...state,
+          hypotheses: Record.map(state.hypotheses, (h) => ({
+            ...h,
+            status: 'pending' as const,
+            result: undefined,
+            startedAt: undefined,
+            completedAt: undefined,
+          })),
+        }))
+        yield* Console.log('All hypotheses reset to pending state')
         break
 
       case '':
-        // Empty input, just show prompt again
+        // Empty input runs list command
+        yield* showHypotheses(store)
         break
 
       default:

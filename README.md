@@ -1,3 +1,5 @@
+<img src="https://gitbucket.schickling.dev/api/get/32330263261d8466bc8146badc9dabbcdbf3425a046486097f62f47c10b9cf96" alt="" height="200"/>
+
 # dilagent 🔍
 
 **Agentic root cause analysis through hypothesis-driven debugging**
@@ -28,7 +30,6 @@ Each hypothesis is tested in parallel:
 - Each hypothesis can result in:
   - ✅ **Proven**: Root cause identified
   - ❌ **Disproven**: Not the issue, move on
-  - 🎯 **Diagnosed**: Issue understood but needs more work
   - ❓ **Inconclusive**: Requires additional data
 - Counter-experiments validate findings
 
@@ -73,7 +74,7 @@ dilagent manager generate-hypotheses
 dilagent manager run-hypotheses
 
 # Or run the full pipeline
-dilagent analyze --auto
+dilagent manager all ... # see `dilagent manager all --help` for options
 
 # Interactive debugging if needed
 dilagent manager repl
