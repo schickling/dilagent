@@ -207,7 +207,7 @@ ${
               format: 'logfmt',
             }),
           ),
-          Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+          Layer.provideMerge(WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: false })),
         ),
       ),
     )

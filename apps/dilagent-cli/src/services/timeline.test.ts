@@ -1,5 +1,4 @@
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as Path from 'node:path'
 import { FileSystem } from '@effect/platform'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
@@ -12,6 +11,7 @@ import {
   createSystemEvent,
   Timeline as TimelineSchema,
 } from '../schemas/file-management.ts'
+import { makeTempDir } from '../utils/fs.ts'
 import { TimelineService } from './timeline.ts'
 import { WorkingDirService } from './working-dir.ts'
 
@@ -23,15 +23,10 @@ describe('TimelineService', () => {
 
   beforeEach(async () => {
     // Create unique test directory for each test
-    testDir = await new Promise<string>((resolve, reject) => {
-      fs.mkdtemp(Path.join(os.tmpdir(), 'timeline-service-test-'), (err, dir) => {
-        if (err) reject(err)
-        else resolve(dir)
-      })
-    })
+    testDir = makeTempDir('timeline-service-test-')
 
     const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
-    const WorkingDirLayer = WorkingDirService.Default({ workingDir: testDir, create: true }).pipe(
+    const WorkingDirLayer = WorkingDirService.Default({ workingDirectory: testDir, create: true }).pipe(
       Layer.provideMerge(PlatformLayer),
     )
     const ServiceLayer = TimelineService.Default.pipe(Layer.provideMerge(WorkingDirLayer))

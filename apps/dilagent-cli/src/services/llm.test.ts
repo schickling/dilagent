@@ -6,18 +6,21 @@
  * to ensure compatibility across different LLM backends.
  */
 
-import * as os from 'node:os'
 import type { FileSystem } from '@effect/platform'
 import type { CommandExecutor } from '@effect/platform/CommandExecutor'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Chunk, Effect, Layer, ManagedRuntime, Stream } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import packageJson from '../../package.json' with { type: 'json' }
+import { makeTempDir } from '../utils/fs.ts'
 import * as ClaudeProvider from './claude.ts'
 import * as CodexProvider from './codex.ts'
 import { LLMService } from './llm.ts'
 import { createMcpServerLayer } from './mcp-server.ts'
 import { StateStore } from './state-store.ts'
 import { WorkingDirService } from './working-dir.ts'
+
+const dilagentVersion = packageJson.version
 
 const providerLayers = [
   { name: 'Claude', layer: ClaudeProvider.ClaudeLLMLive },
@@ -32,7 +35,7 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
     const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
     const ServiceLayer = createMcpServerLayer(3457).pipe(
       Layer.provideMerge(StateStore.Default),
-      Layer.provideMerge(WorkingDirService.Default({ workingDir: os.tmpdir(), create: true })),
+      Layer.provideMerge(WorkingDirService.Default({ workingDirectory: makeTempDir(), create: true })),
       Layer.provide(PlatformLayer),
     )
 
@@ -223,11 +226,13 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
             ...currentState,
             hypotheses: {
               H001: {
+                dilagentVersion,
                 id: 'H001',
                 description: 'Test hypothesis for MCP tools',
                 slug: 'test-hypothesis',
                 branchName: 'dilagent/test/H001-test-hypothesis',
                 worktreePath: '/tmp/test-worktree',
+                metadataPath: '/tmp/.dilagent/H001-test-hypothesis',
                 status: 'pending',
               },
             },
@@ -265,11 +270,13 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
             ...currentState,
             hypotheses: {
               H002: {
+                dilagentVersion,
                 id: 'H002',
                 description: 'Result hypothesis for MCP tools',
                 slug: 'result-hypothesis',
                 branchName: 'dilagent/test/H002-result-hypothesis',
                 worktreePath: '/tmp/result-worktree',
+                metadataPath: '/tmp/.dilagent/H002-result-hypothesis',
                 status: 'running',
               },
             },
@@ -308,19 +315,23 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
             ...currentState,
             hypotheses: {
               H003: {
+                dilagentVersion,
                 id: 'H003',
                 description: 'First hypothesis for status all test',
                 slug: 'first-hypothesis',
                 branchName: 'dilagent/test/H003-first-hypothesis',
                 worktreePath: '/tmp/first-worktree',
+                metadataPath: '/tmp/.dilagent/H003-first-hypothesis',
                 status: 'running',
               },
               H004: {
+                dilagentVersion,
                 id: 'H004',
                 description: 'Second hypothesis for status all test',
                 slug: 'second-hypothesis',
                 branchName: 'dilagent/test/H004-second-hypothesis',
                 worktreePath: '/tmp/second-worktree',
+                metadataPath: '/tmp/.dilagent/H004-second-hypothesis',
                 status: 'completed',
                 result: { _tag: 'Proven' as const, hypothesisId: 'H004', findings: 'proven' },
               },
@@ -358,18 +369,22 @@ describe.each(providerLayers)('$name LLM provider', { timeout: 60000 }, ({ layer
             ...currentState,
             hypotheses: {
               H005: {
+                dilagentVersion,
                 id: 'H005',
                 description: 'Clear test hypothesis',
                 slug: 'clear-test-hypothesis',
                 branchName: 'dilagent/test/H005-clear-test',
                 worktreePath: '/tmp/clear-worktree',
+                metadataPath: '/tmp/.dilagent/H005-clear-test-hypothesis',
                 status: 'running',
               },
               H006: {
+                dilagentVersion,
                 id: 'H006',
                 description: 'Another clear hypothesis',
                 slug: 'another-clear-hypothesis',
                 branchName: 'dilagent/test/H006-another-clear',
+                metadataPath: '/tmp/.dilagent/H006-another-clear-hypothesis',
                 worktreePath: '/tmp/another-clear-worktree',
                 status: 'completed',
                 result: {

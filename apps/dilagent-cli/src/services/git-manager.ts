@@ -89,10 +89,13 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
      * If context-dir is a git repo: creates worktree
      * If context-dir is not a git repo: copies files and initializes git
      */
-    const setupContextRepo = Effect.fn('GitManagerService.setupContextRepo')(function* (
-      contextDir: string,
-      workingDirId: string,
-    ) {
+    const setupContextRepo = Effect.fn('GitManagerService.setupContextRepo')(function* ({
+      contextDir,
+      workingDirId,
+    }: {
+      contextDir: string
+      workingDirId: string
+    }) {
       yield* Effect.annotateCurrentSpan({ contextDir, workingDirId })
 
       const contextRepoPath = workingDir.paths.contextRepo
@@ -297,7 +300,7 @@ export class GitManagerService extends Effect.Service<GitManagerService>()('GitM
       yield* Effect.annotateCurrentSpan({ hypothesisId, hypothesisSlug, workingDirId })
 
       const contextRepoPath = workingDir.paths.contextRepo
-      const worktreePath = Path.join(workingDir.workingDir, `${hypothesisId}-${hypothesisSlug}`)
+      const worktreePath = Path.join(workingDir.workingDir, `worktree-${hypothesisId}-${hypothesisSlug}`)
       const branchName = `dilagent/${workingDirId}/${hypothesisId}-${hypothesisSlug}`
 
       // Verify context-repo exists and is a git repo

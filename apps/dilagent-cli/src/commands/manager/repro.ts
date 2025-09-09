@@ -23,13 +23,13 @@ import { cwdOption, flakyOption, LOG_FILES, llmOption, REPRODUCTION_FILE, workin
  * Command to reproduce an issue for diagnostic understanding
  *
  * This command is responsible for:
- * - Recording setup phase timeline events (phase.started, phase.completed/failed)
+ * - Recording reproduction phase timeline events (phase.started, phase.completed/failed)
  * - Creating reproducible test cases for the reported issue
  * - Updating state store with reproduction results
  *
  * Timeline events recorded:
- * - phase.started (phase: setup)
- * - phase.completed/failed (phase: setup) with confidence and type details
+ * - phase.started (phase: reproduction)
+ * - phase.completed/failed (phase: reproduction) with confidence and type details
  *
  * Used by: all.ts workflow orchestration
  */
@@ -135,7 +135,9 @@ export const reproCommand = Cli.Command.make(
               format: 'logfmt',
             }),
           ).pipe(
-            Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+            Layer.provideMerge(
+              WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: false }),
+            ),
           ),
         ),
       ),
@@ -166,7 +168,7 @@ const reproduceIssue = ({
     yield* timelineService.recordEvent(
       createPhaseEvent({
         event: 'phase.started',
-        phase: 'setup',
+        phase: 'reproduction',
       }),
     )
 
@@ -202,7 +204,7 @@ const reproduceIssue = ({
     yield* timelineService.recordEvent(
       createSystemEvent({
         event: 'system.initialized',
-        phase: 'setup',
+        phase: 'reproduction',
       }),
     )
 
@@ -234,7 +236,7 @@ const reproduceIssue = ({
     yield* timelineService.recordEvent(
       createPhaseEvent({
         event: reproductionResult._tag === 'Success' ? 'phase.completed' : 'phase.failed',
-        phase: 'setup',
+        phase: 'reproduction',
         ...(details && { details }), // Only include details if not undefined
       }),
     )
@@ -242,12 +244,12 @@ const reproduceIssue = ({
     // Update StateStore with reproduction results
     yield* stateStore.updateState((state) => ({
       ...state,
-      currentPhase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'setup',
+      currentPhase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'reproduction',
       completedPhases:
-        reproductionResult._tag === 'Success' ? [...state.completedPhases, 'setup'] : state.completedPhases,
+        reproductionResult._tag === 'Success' ? [...state.completedPhases, 'reproduction'] : state.completedPhases,
       progress: {
         ...state.progress,
-        phase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'setup',
+        phase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'reproduction',
         message:
           reproductionResult._tag === 'Success'
             ? 'Reproduction successful, ready for hypothesis generation'

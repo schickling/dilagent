@@ -1,13 +1,9 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { FileSystem } from '@effect/platform'
-import { Effect, Option, Schema } from 'effect'
+import { Duration, Effect, Option, Schema } from 'effect'
 import { instructionsMd, makeContextMd } from '../../prompts/hypothesis-worker.ts'
-import {
-  generateHypothesesFromReproductionPrompt,
-  generateHypothesisIdeasPrompt,
-  toolEnabledSystemPrompt,
-} from '../../prompts/manager.ts'
+import { generateHypothesesFromReproductionPrompt, toolEnabledSystemPrompt } from '../../prompts/manager.ts'
 import { createHypothesisEvent, createPhaseEvent } from '../../schemas/file-management.ts'
 import {
   GenerateHypothesesInputResult,
@@ -123,39 +119,33 @@ export const generateHypotheses = ({
       Effect.catchAll(() => Effect.succeed(undefined as ReproductionResult | undefined)),
     )
 
-    // Choose prompt based on whether reproduction exists
-    const prompt =
-      reproduction?._tag === 'Success'
-        ? generateHypothesesFromReproductionPrompt({
-            problemPrompt,
-            resolvedContextDirectory: contextDir,
-            reproduction,
-            ...(hypothesisCount !== undefined && { hypothesisCount }),
-          })
-        : generateHypothesisIdeasPrompt({
-            problemPrompt,
-            resolvedContextDirectory: contextDir,
-            ...(hypothesisCount !== undefined && { hypothesisCount }),
-          })
+    // Require successful reproduction before generating hypotheses
+    if (!reproduction || reproduction._tag !== 'Success') {
+      return yield* Effect.die(
+        reproduction?._tag === 'NeedMoreInfo'
+          ? `Reproduction failed and needs more information. Please run 'dilagent manager repro' to fix reproduction issues before generating hypotheses.`
+          : `No successful reproduction found. Please run 'dilagent manager repro' first to reproduce the issue before generating hypotheses.`,
+      )
+    }
+
+    const typeLabel = {
+      immediate: '⚡',
+      delayed: '⏳',
+      environmental: '🔧',
+    }[reproduction.reproductionType]
+
+    yield* Effect.logDebug(
+      `Found existing reproduction (${typeLabel} ${reproduction.reproductionType}) - generating hypotheses from reproduction data with ${(reproduction.confidence * 100).toFixed(1)}% confidence`,
+    )
+
+    const prompt = generateHypothesesFromReproductionPrompt({
+      problemPrompt,
+      resolvedContextDirectory: contextDir,
+      reproduction,
+      ...(hypothesisCount !== undefined && { hypothesisCount }),
+    })
 
     yield* fs.writeFileString(path.join(artifactsDir, GENERATE_HYPOTHESES_PROMPT_FILE), prompt)
-
-    if (reproduction?._tag === 'Success') {
-      const typeLabel = {
-        immediate: '⚡',
-        delayed: '⏳',
-        environmental: '🔧',
-      }[reproduction.reproductionType]
-
-      yield* Effect.logDebug(
-        `Found existing reproduction (${typeLabel} ${reproduction.reproductionType}) - generating hypotheses from reproduction data with ${(reproduction.confidence * 100).toFixed(1)}% confidence`,
-      )
-    } else {
-      yield* Effect.logDebug(
-        `No reproduction found - generating hypotheses with traditional exploration and reproduction approach`,
-      )
-      yield* Effect.logDebug(`💡 Hint: Run 'dilagent manager repro' first for more focused hypothesis generation`)
-    }
 
     const HypothesisInputResult = yield* llm
       .prompt(prompt, {
@@ -226,6 +216,7 @@ export const prepareExperiment = ({ hypothesis }: { hypothesis: HypothesisInput 
     const fs = yield* FileSystem.FileSystem
     const gitManager = yield* GitManagerService
     const stateStore = yield* StateStore
+    const workingDirService = yield* WorkingDirService
 
     // Get the hypothesis state which has the correct slug
     const state = yield* stateStore.getState()
@@ -246,13 +237,28 @@ export const prepareExperiment = ({ hypothesis }: { hypothesis: HypothesisInput 
 
     const worktree = hypothesisState.worktreePath
 
-    yield* fs.writeFileString(path.join(worktree, 'instructions.md'), instructionsMd)
-    yield* fs.writeFileString(
-      path.join(worktree, 'context.md'),
-      makeContextMd({ ...hypothesis, workingDirectory: worktree }),
-    )
+    // Ensure hypothesis metadata directory exists and get file paths
+    const metadataDir = yield* workingDirService.ensureHypothesisDir({
+      hypothesisId: hypothesis.hypothesisId,
+      hypothesisSlug,
+    })
+    const hypothesisFiles = workingDirService.paths.hypothesisFiles({
+      hypothesisId: hypothesis.hypothesisId,
+      hypothesisSlug,
+    })
 
-    yield* fs.writeFileString(path.join(worktree, 'report.md'), 'TODO: Create report here')
+    // Write metadata files to the hypothesis metadata directory (not the worktree)
+    yield* fs.writeFileString(hypothesisFiles.instructionsMd, instructionsMd)
+    yield* fs.writeFileString(hypothesisFiles.contextMd, makeContextMd({ ...hypothesis, workingDirectory: worktree }))
+    yield* fs.writeFileString(hypothesisFiles.reportMd, 'TODO: Create report here')
+    yield* fs.writeFileString(hypothesisFiles.generatedPromptMd, 'TODO: Store generated prompt here')
+
+    // Create empty hypothesis log file
+    yield* fs.writeFileString(hypothesisFiles.hypothesisLog, '')
+
+    yield* Effect.logDebug(
+      `[prepareExperiment] Created hypothesis metadata files in ${metadataDir} for ${hypothesis.hypothesisId}`,
+    )
   }).pipe(Effect.withSpan('prepareExperiment'))
 
 export const runHypothesisWorker = ({
@@ -260,11 +266,13 @@ export const runHypothesisWorker = ({
   hypothesis,
   llm,
   cwd,
+  workingDir,
 }: {
   port: number
   hypothesis: HypothesisInput
   llm: 'claude' | 'codex'
   cwd: string
+  workingDir: string
 }) =>
   Effect.gen(function* () {
     const stateStore = yield* StateStore
@@ -296,6 +304,7 @@ export const runHypothesisWorker = ({
       yield* hypothesisCommand.handler({
         managerPort: port,
         worktree: hypothesisWorkTree,
+        workingDirOption: workingDir,
         llm,
         showLogsOption: Option.none(),
         cwdOption: Option.some(cwd),
@@ -311,7 +320,7 @@ export const runHypothesisWorker = ({
         },
       })
 
-      yield* Effect.logDebug(`✅ Completed hypothesis ${hypothesis.hypothesisId} (${executionTimeMs}ms)`)
+      yield* Effect.logDebug(`✅ Completed hypothesis ${hypothesis.hypothesisId} (${Duration.format(executionTimeMs)})`)
     })
 
     // Handle errors using Effect's error handling

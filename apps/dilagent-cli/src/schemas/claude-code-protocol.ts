@@ -87,7 +87,8 @@ export type ToolUseContent = typeof ToolUseContent.Type
 export const ToolResultContent = Schema.Struct({
   type: Schema.Literal('tool_result'),
   tool_use_id: Schema.String,
-  content: Schema.String,
+  // TODO: figure out proper schema for content
+  content: Schema.Unknown,
   is_error: Schema.optional(Schema.Boolean),
 })
 

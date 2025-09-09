@@ -1,10 +1,12 @@
 import { Schema } from 'effect'
+import packageJson from '../../package.json' with { type: 'json' }
 import { HypothesisId, hypothesisSlug, timestamp, WorkingDirId } from './common.ts'
 import { HypothesisResult, HypothesisStatusUpdate } from './hypothesis.ts'
 
 // Workflow phase literals (renamed from Phase for clarity)
 export const WorkflowPhase = Schema.Literal(
   'setup',
+  'reproduction',
   'hypothesis-generation',
   'hypothesis-testing',
   'execution',
@@ -28,6 +30,9 @@ export type HypothesisStatus = typeof HypothesisStatus.Type
  * Individual hypothesis state with progress tracking
  */
 export const HypothesisState = Schema.Struct({
+  dilagentVersion: Schema.Literal(packageJson.version).annotations({
+    description: "Version of Dilagent that created this hypothesis. There's currently no cross-version compatibility.",
+  }),
   id: HypothesisId,
   slug: hypothesisSlug,
   description: Schema.String.annotations({
@@ -44,11 +49,16 @@ export const HypothesisState = Schema.Struct({
   // Git/filesystem info
   worktreePath: Schema.String.annotations({
     description: 'Path to the hypothesis worktree directory',
-    examples: ['/path/to/H001-auth-bug'],
+    examples: ['/path/to/worktree-H001-auth-bug'],
+  }),
+  metadataPath: Schema.String.annotations({
+    description:
+      'Path to hypothesis metadata directory in the working directory containing instructions.md, context.md, etc.',
+    examples: ['/path/to/.dilagent/H001-auth-bug'],
   }),
   branchName: Schema.String.annotations({
     description: 'Git branch name for this hypothesis',
-    examples: ['dilagent/H001-auth-bug'],
+    examples: ['dilagent/<WORKING_DIR_ID>/H001-auth-bug'],
   }),
 
   // Timing

@@ -58,33 +58,69 @@ The process continues iteratively until the root cause is found and validated.
 - **Evidence-Based**: Every conclusion backed by reproducible experiments
 - **MCP Integration**: Leverages Model Context Protocol for tool orchestration
 
+## Workflow Stages & Key Files
+
+### Stage 0: Setup
+```bash
+dilagent manager setup --working-directory ./debug-session --context-directory ./my-project
+```
+- Creates `.dilagent/` directory structure
+- Generates `context.md` with codebase information and issue description
+
+### Stage 1: Reproduce
+```bash
+dilagent manager repro --working-directory ./debug-session --llm claude
+```
+- Creates `reproduction.md` with steps to reproduce the issue
+- Generates diagnostic information and error details
+
+### Stage 2: Generate Hypotheses
+```bash
+dilagent manager generate-hypotheses --working-directory ./debug-session --count 3 --llm claude
+```
+- Creates numbered hypothesis directories: `H001-config-issue/`, `H002-race-condition/`, etc.
+- Each contains:
+  - `hypothesis.md` - The specific theory about the bug
+  - `instructions.md` - Steps to test the hypothesis
+
+### Stage 3: Test Hypotheses
+```bash
+dilagent manager run-hypotheses --working-directory ./debug-session --llm claude
+```
+- Creates git worktrees for parallel testing (e.g., `worktree-H001-config-issue/`)
+- AI agents test each hypothesis independently
+- Updates `report.md` in each hypothesis directory with findings
+- Logs stored in `.dilagent/H{NNN}-{slug}/hypothesis.log`
+
+### Stage 4: Summary
+```bash
+dilagent manager summary --working-directory ./debug-session
+```
+- Aggregates all hypothesis reports
+- Generates final summary with likely root causes and fixes
+
 ## Quick Start
 
 ```bash
 # Install
 npm install -g dilagent
 
-# Stage 0: Setup
-dilagent manager setup
+# Run the complete workflow in one command
+dilagent manager all \
+  --context-directory ./my-project \
+  --working-directory ./debug-session \
+  --count 3 \
+  --llm claude
 
-# Stage 1: Reproduce an issue
-dilagent manager repro
-
-# Stage 2: Generate hypotheses
-dilagent manager generate-hypotheses
-
-# Stage 3: Test hypotheses in parallel
-dilagent manager run-hypotheses
-
-# Stage 4: Generate summary
-dilagent manager summary
-
-# Or run the full pipeline
-dilagent manager all ... # see `dilagent manager all --help` for options
+# Key options:
+# --llm claude|codex - Choose AI model (Claude recommended)
+# --working-directory - Where dilagent stores its files
+# --context-directory - The codebase to debug
+# --count - Number of hypotheses to generate (default: 3)
 ```
 
 ## Requirements
 
 - Bun 1.2+
 - Git (for worktree isolation)
-- Local LLM tool (`claude` or `codex`)
+- Local LLM tool (Uses your existing `claude` or `codex` tool)

@@ -5,15 +5,13 @@
  * auto-completion, and state management integration.
  */
 
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as Path from 'node:path'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Effect, Layer, ManagedRuntime, Record } from 'effect'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type CompleterStore, createCompleter, parseCommand } from './repl.ts'
 import { StateStore } from './services/state-store.ts'
 import { WorkingDirService } from './services/working-dir.ts'
+import { makeTempDir } from './utils/fs.ts'
 
 // Create a test completer adapter that works with StateStore
 const createTestCompleter = (store: StateStore) => {
@@ -32,17 +30,12 @@ describe('REPL', () => {
   let store: StateStore
 
   beforeAll(async () => {
-    const testDir = await new Promise<string>((resolve, reject) => {
-      fs.mkdtemp(Path.join(os.tmpdir(), 'repl-test-'), (err, dir) => {
-        if (err) reject(err)
-        else resolve(dir)
-      })
-    })
+    const testDir = makeTempDir('repl-test-')
     // Create StateStore instance for testing using ManagedRuntime with FileSystem dependency
     const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
     const ServiceLayer = Layer.provide(
       StateStore.Default,
-      WorkingDirService.Default({ workingDir: testDir, create: true }),
+      WorkingDirService.Default({ workingDirectory: testDir, create: true }),
     ).pipe(Layer.provide(PlatformLayer))
     const TestLayer = Layer.mergeAll(PlatformLayer, ServiceLayer)
 

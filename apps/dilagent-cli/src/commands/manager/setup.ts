@@ -60,7 +60,10 @@ export const setupCommand = Cli.Command.make(
 
       // Get the workingDirId from the state for branch naming
       const state = yield* stateStore.getState()
-      const contextSetupResult = yield* gitManager.setupContextRepo(resolvedContextDirectory, state.workingDirId)
+      const contextSetupResult = yield* gitManager.setupContextRepo({
+        contextDir: resolvedContextDirectory,
+        workingDirId: state.workingDirId,
+      })
 
       yield* Effect.logDebug(
         `[manager setup] Context setup result: contextRepoPath=${contextSetupResult.contextRepoPath}, relativePath=${contextSetupResult.relativePath}`,
@@ -112,7 +115,9 @@ export const setupCommand = Cli.Command.make(
             replace: false,
             format: 'logfmt',
           }),
-        ).pipe(Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: true }))),
+        ).pipe(
+          Layer.provideMerge(WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: true })),
+        ),
       ),
     )
   },

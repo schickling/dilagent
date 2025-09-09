@@ -1,28 +1,23 @@
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as Path from 'node:path'
 import { FileSystem } from '@effect/platform'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Effect, Layer } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { makeTempDir } from '../utils/fs.ts'
 import { WorkingDirService } from './working-dir.ts'
 
 describe('WorkingDirService', () => {
   let testDir: string
 
   const TestLayer = (testDir: string) =>
-    WorkingDirService.Default({ workingDir: testDir, create: true }).pipe(
+    WorkingDirService.Default({ workingDirectory: testDir, create: true }).pipe(
       Layer.provideMerge(Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)),
     )
 
   beforeEach(async () => {
     // Create unique test directory for each test
-    testDir = await new Promise<string>((resolve, reject) => {
-      fs.mkdtemp(Path.join(os.tmpdir(), 'dilagent-test-'), (err, dir) => {
-        if (err) reject(err)
-        else resolve(dir)
-      })
-    })
+    testDir = makeTempDir('dilagent-test-')
   })
 
   afterEach(async () => {

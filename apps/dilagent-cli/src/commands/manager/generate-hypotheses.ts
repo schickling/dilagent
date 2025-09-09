@@ -80,7 +80,9 @@ export const generateHypothesesCommand = Cli.Command.make(
               { replace: false, format: 'logfmt' },
             ),
           ).pipe(
-            Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+            Layer.provideMerge(
+              WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: false }),
+            ),
           ),
         ),
       ),

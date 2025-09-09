@@ -58,6 +58,7 @@ export type EventType = typeof EventType.Type
 // Workflow phase literals (duplicated here to avoid circular imports)
 const WorkflowPhase = Schema.Literal(
   'setup',
+  'reproduction',
   'hypothesis-generation',
   'hypothesis-testing',
   'execution',

@@ -380,20 +380,6 @@ Check all hypotheses status **ONLY during DESIGNING phase**:
 - Learn from other workers' findings  
 - Coordinate testing approaches
 
-### Schema-Report Synchronization Requirements
-When calling \`dilagent_hypothesis_set_result\` with a "Proven" result, ensure these mappings are maintained:
-- \`solutionProposals\` <-> "Solution Proposals" section in report.md
-- \`experimentHierarchy\` <-> "Experiment Hierarchy" section in report.md  
-- \`evidence\` <-> "Evidence Repository" section in report.md
-- \`confidenceLevel\` <-> "Conclusion" section confidence scoring in report.md
-- \`riskAssessment\` <-> "Risk Assessment" section in report.md
-- \`findings\` <-> "Executive Summary" and "Conclusion" sections in report.md
-- \`investigationTimeline\` <-> "Investigation Timeline" section in report.md
-- \`codeContext\` <-> "Code Context & Analysis" subsection in Evidence Repository
-- \`comparativeAnalysis\` <-> "Comparative Analysis" section in report.md
-- \`debuggingArtifacts\` <-> "Debugging Artifacts" subsection in Evidence Repository
-- \`statisticalAnalysis\` <-> "Statistical Analysis" subsection in Evidence Repository
-
 ## Acceptance Criteria
 
 - **Root Cause Identification**: Primary root cause clearly identified with high confidence
@@ -406,28 +392,47 @@ When calling \`dilagent_hypothesis_set_result\` with a "Proven" result, ensure t
 `
 
 /** context.md */
-export const makeContextMd = ({ workingDirectory, ...hypothesis }: HypothesisInput & { workingDirectory: string }) => `\
-## Hypothesis: \`${hypothesis.hypothesisId}\`
+export const makeContextMd = ({ workingDirectory, ...hypothesis }: HypothesisInput & { workingDirectory: string }) => {
+  // Compute paths from the hypothesis information - no need for external metadataDirectory param
+  const hypothesisId = hypothesis.hypothesisId
+  const hypothesisSlug = hypothesis.problemTitle
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const metadataDirectory = `[working-dir]/.dilagent/${hypothesisId}-${hypothesisSlug}`
+
+  return `\
+## Hypothesis: \`${hypothesisId}\`
 
 ## Instructions
 
-Follow the instructions provided in the \`instructions.md\` file.
+Follow the instructions provided in the \`instructions.md\` file located in your metadata directory.
 
 ## Working Directory: \`${workingDirectory}\`
 
 **🔒 Git Worktree Isolation**: You are working in an isolated git worktree. This means:
 - You can modify any file in your working directory without affecting other hypotheses
-- Each hypothesis runs in its own branch: \`dilagent/${hypothesis.hypothesisId}-{hypothesisSlug}\`  
+- Each hypothesis runs in its own branch: \`dilagent/${hypothesisId}-${hypothesisSlug}\`  
 - Your changes are isolated from the main project and other hypothesis workers
 - Feel free to modify, test, and experiment safely - this is your isolated working directory
 
 **📁 File Structure**:
+
+**Hypothesis Metadata Directory**: \`${metadataDirectory}\`
+\`\`\`
+${metadataDirectory}/
+├── context.md           ← This file (hypothesis context)
+├── report.md            ← Your progress report (YOU MUST UPDATE THIS)
+├── instructions.md      ← Loop instructions  
+├── generated-prompt.md  ← Generated prompt for this hypothesis
+└── hypothesis.log       ← Hypothesis-specific execution log
+\`\`\`
+
+**Working Directory**: \`${workingDirectory}\`
 \`\`\`
 ${workingDirectory}/
-├── context.md           ← This file (hypothesis context)
-├── instructions.md      ← Loop instructions  
-├── report.md           ← Your progress report (update this)
 ├── [project files...]  ← All project files (safe to modify)
+└── [can create any files needed for experiments]
 \`\`\`
 
 ## Current Phase: DESIGNING
@@ -477,3 +482,4 @@ To prove this hypothesis:
 - Include evidence from coordination in your experiment design
 
 `
+}

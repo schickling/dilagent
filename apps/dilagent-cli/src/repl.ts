@@ -109,8 +109,7 @@ export const runRepl = Effect.gen(function* () {
 
   yield* Console.log('Hypothesis Manager REPL. Type "help" for commands, "exit" to quit.')
   yield* Console.log('Use arrow up/down to navigate command history.')
-  yield* Console.log('Press Tab for auto-completion of hypothesis IDs.')
-  yield* Console.log('Press Enter to list all hypotheses.\n')
+  yield* Console.log('Press Tab for auto-completion of hypothesis IDs.\n')
 
   // Show hypotheses on startup
   yield* showHypotheses(store)
@@ -151,8 +150,7 @@ export const runRepl = Effect.gen(function* () {
         break
 
       case '':
-        // Empty input runs list command
-        yield* showHypotheses(store)
+        // Empty input - do nothing, just continue the loop
         break
 
       default:

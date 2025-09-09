@@ -95,6 +95,7 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
               hypothesis,
               llm,
               cwd,
+              workingDir: resolvedWorkingDirectory,
             }),
           { concurrency: 4 },
         ).pipe(Effect.tapErrorCause(Effect.logError), Effect.forkScoped)
@@ -122,7 +123,9 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
             Layer.mergeAll(
               llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
               Layer.mergeAll(GitManagerService.Default, TimelineService.Default, StateStore.Default).pipe(
-                Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+                Layer.provideMerge(
+                  WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: false }),
+                ),
                 Layer.provideMerge(
                   createFileLoggerLayer(
                     path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.RUN_HYPOTHESES),
