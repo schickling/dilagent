@@ -26,22 +26,34 @@ export class WorkingDirNotInitializedError extends Schema.TaggedError<WorkingDir
  * - NO file I/O operations (just directory creation)
  */
 export class WorkingDirService extends Effect.Service<WorkingDirService>()('WorkingDirService', {
-  effect: ({ workingDir, create = false }: { workingDir: string; create?: boolean }) =>
+  effect: ({ workingDirectory, create = false }: { workingDirectory: string; create?: boolean }) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
 
       // Define all paths immutably
       const paths = {
-        dilagent: Path.resolve(workingDir, '.dilagent'),
-        logs: Path.resolve(workingDir, '.dilagent', 'logs'),
-        artifacts: Path.resolve(workingDir, '.dilagent', 'artifacts'),
-        contextRepo: Path.resolve(workingDir, '.dilagent', 'context-repo'),
-        stateFile: Path.resolve(workingDir, '.dilagent', 'state.json'),
-        timelineFile: Path.resolve(workingDir, '.dilagent', 'timeline.json'),
+        dilagent: Path.resolve(workingDirectory, '.dilagent'),
+        logs: Path.resolve(workingDirectory, '.dilagent', 'logs'),
+        artifacts: Path.resolve(workingDirectory, '.dilagent', 'artifacts'),
+        contextRepo: Path.resolve(workingDirectory, '.dilagent', 'context-repo'),
+        stateFile: Path.resolve(workingDirectory, '.dilagent', 'state.json'),
+        timelineFile: Path.resolve(workingDirectory, '.dilagent', 'timeline.json'),
 
         // Hypothesis directory includes both ID and slug
         hypothesisDir: ({ hypothesisId, hypothesisSlug }: { hypothesisId: string; hypothesisSlug: string }): string => {
-          return Path.resolve(workingDir, '.dilagent', `${hypothesisId}-${hypothesisSlug}`)
+          return Path.resolve(workingDirectory, '.dilagent', `${hypothesisId}-${hypothesisSlug}`)
+        },
+
+        // Individual hypothesis metadata files
+        hypothesisFiles: ({ hypothesisId, hypothesisSlug }: { hypothesisId: string; hypothesisSlug: string }) => {
+          const baseDir = Path.resolve(workingDirectory, '.dilagent', `${hypothesisId}-${hypothesisSlug}`)
+          return {
+            contextMd: Path.resolve(baseDir, 'context.md'),
+            instructionsMd: Path.resolve(baseDir, 'instructions.md'),
+            reportMd: Path.resolve(baseDir, 'report.md'),
+            hypothesisLog: Path.resolve(baseDir, 'hypothesis.log'),
+            hypothesisPromptLog: Path.resolve(baseDir, 'hypothesis-prompt.log'),
+          } as const
         },
       } as const
 
@@ -136,22 +148,24 @@ export class WorkingDirService extends Effect.Service<WorkingDirService>()('Work
           ensureDirectory(paths.artifacts),
           ensureDirectory(paths.contextRepo),
         ])
-        yield* Effect.logDebug(`[WorkingDirService] Created working directory structure at ${workingDir}`)
+        yield* Effect.logDebug(`[WorkingDirService] Created working directory structure at ${workingDirectory}`)
       } else {
         // Validate that the required directories exist
         const isInitialized = yield* validateDilagentStructure()
         if (!isInitialized) {
           return yield* new WorkingDirNotInitializedError({
-            workingDir,
-            message: `Dilagent workspace not initialized at ${workingDir}. Run 'dilagent manager setup' first.`,
+            workingDir: workingDirectory,
+            message: `Dilagent working directory not initialized at ${workingDirectory}. Run 'dilagent manager setup' first.`,
           })
         }
-        yield* Effect.logDebug(`[WorkingDirService] Validated existing working directory structure at ${workingDir}`)
+        yield* Effect.logDebug(
+          `[WorkingDirService] Validated existing working directory structure at ${workingDirectory}`,
+        )
       }
 
       return {
         paths,
-        workingDir,
+        workingDir: workingDirectory,
         ensureHypothesisDir,
       } as const
     }),

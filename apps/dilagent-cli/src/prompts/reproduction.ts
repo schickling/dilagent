@@ -11,6 +11,8 @@ You have access to tools for file operations, bash execution, and other tasks. U
 3. Run code and capture outputs
 4. Generate comprehensive reproduction scripts
 
+When a specific context subdirectory is provided, begin your investigation there as it contains the primary issue to debug.
+
 CRITICAL: Your final response must be ONLY valid JSON matching the required schema. Do not include any explanatory text, tool usage descriptions, or other content - respond with pure JSON only.`
 
 export const initialReproductionPrompt = ({
@@ -37,9 +39,10 @@ ${contextDirectory}
 ${
   contextRelativePath && contextRelativePath !== '.'
     ? `<context-focus-area>
-The issue is located in the "${contextRelativePath}" subdirectory of the repository.
-Focus your exploration and reproduction on files within this subdirectory.
-When running commands, consider if they need to be executed from the "${contextRelativePath}" directory.
+The issue to debug is located in the "${contextRelativePath}" subdirectory.
+Please start your investigation within "${contextRelativePath}" as this is where the bug manifests.
+While other files in the repository may be relevant for context, the primary problem and reproduction should be based on code within "${contextRelativePath}".
+When exploring the codebase, prioritize understanding the "${contextRelativePath}" implementation first.
 </context-focus-area>
 
 `
@@ -85,7 +88,7 @@ Identify which type best describes your reproduction:
 - BUT: Keep the reproduction reliable above all else
 
 **4. Working Directory Structure**
-You are working within a structured .dilagent workspace:
+You are working within a structured .dilagent working directory:
 
 \`\`\`
 .dilagent/
@@ -211,9 +214,10 @@ ${contextDirectory}
 ${
   contextRelativePath && contextRelativePath !== '.'
     ? `<context-focus-area>
-The issue is located in the "${contextRelativePath}" subdirectory of the repository.
-Focus your exploration and reproduction on files within this subdirectory.
-When running commands, consider if they need to be executed from the "${contextRelativePath}" directory.
+The issue to debug is located in the "${contextRelativePath}" subdirectory.
+Please start your investigation within "${contextRelativePath}" as this is where the bug manifests.
+While other files in the repository may be relevant for context, the primary problem and reproduction should be based on code within "${contextRelativePath}".
+When exploring the codebase, prioritize understanding the "${contextRelativePath}" implementation first.
 </context-focus-area>
 
 `

@@ -2,10 +2,12 @@ import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { FileSystem } from '@effect/platform'
 import { Effect, Layer, Option } from 'effect'
+import { createPhaseEvent } from '../../schemas/file-management.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { cwdOption, workingDirectoryOption } from './shared.ts'
+import { cwdOption, LOG_FILES, workingDirectoryOption } from './shared.ts'
 
 /**
  * Command to generate comprehensive workflow summary and statistics
@@ -49,17 +51,19 @@ export const summaryCommand = Cli.Command.make(
       const totalWorkflowTime = startEvent ? currentTime - new Date(startEvent.timestamp).getTime() : undefined
 
       // Record workflow completion event
-      yield* timelineService.recordEvent({
-        event: 'phase.completed',
-        phase: 'completed',
-        details: {
-          totalExecutionTimeMs: totalWorkflowTime,
-          hypothesesGenerated: state.metrics.hypothesesGenerated,
-          hypothesesCompleted: state.metrics.hypothesesCompleted,
-          hypothesesSuccessful: state.metrics.hypothesesSuccessful,
-          hypothesesFailed: state.metrics.hypothesesFailed,
-        },
-      })
+      yield* timelineService.recordEvent(
+        createPhaseEvent({
+          event: 'phase.completed',
+          phase: 'completed',
+          details: {
+            totalExecutionTimeMs: totalWorkflowTime,
+            hypothesesGenerated: state.metrics.hypothesesGenerated,
+            hypothesesCompleted: state.metrics.hypothesesCompleted,
+            hypothesesSuccessful: state.metrics.hypothesesSuccessful,
+            hypothesesFailed: state.metrics.hypothesesFailed,
+          },
+        }),
+      )
 
       // Update state to completed
       yield* stateStore.completeRun()
@@ -197,7 +201,13 @@ ${
     }).pipe(
       Effect.provide(
         Layer.mergeAll(TimelineService.Default, StateStore.Default).pipe(
-          Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+          Layer.provideMerge(
+            createFileLoggerLayer(path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.SUMMARY), {
+              replace: false,
+              format: 'logfmt',
+            }),
+          ),
+          Layer.provideMerge(WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: false })),
         ),
       ),
     )

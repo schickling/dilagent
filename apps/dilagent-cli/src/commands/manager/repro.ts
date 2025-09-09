@@ -7,34 +7,29 @@ import {
   refineReproductionPrompt,
   reproductionSystemPrompt,
 } from '../../prompts/reproduction.ts'
+import { createPhaseEvent, createSystemEvent } from '../../schemas/file-management.ts'
 import { ReproductionResult, ReproductionResultFile } from '../../schemas/reproduction.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { LLMService } from '../../services/llm.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
 import { parseJsonLlmResponse } from '../../utils/schema-utils.ts'
-import {
-  cwdOption,
-  flakyOption,
-  llmOption,
-  REPRODUCTION_FILE,
-  REPRODUCTION_LOG_FILE,
-  workingDirectoryOption,
-} from './shared.ts'
+import { cwdOption, flakyOption, LOG_FILES, llmOption, REPRODUCTION_FILE, workingDirectoryOption } from './shared.ts'
 
 /**
  * Command to reproduce an issue for diagnostic understanding
  *
  * This command is responsible for:
- * - Recording setup phase timeline events (phase.started, phase.completed/failed)
+ * - Recording reproduction phase timeline events (phase.started, phase.completed/failed)
  * - Creating reproducible test cases for the reported issue
  * - Updating state store with reproduction results
  *
  * Timeline events recorded:
- * - phase.started (phase: setup)
- * - phase.completed/failed (phase: setup) with confidence and type details
+ * - phase.started (phase: reproduction)
+ * - phase.completed/failed (phase: reproduction) with confidence and type details
  *
  * Used by: all.ts workflow orchestration
  */
@@ -132,8 +127,17 @@ export const reproCommand = Cli.Command.make(
       Effect.provide(
         Layer.mergeAll(
           llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
-          Layer.mergeAll(TimelineService.Default, StateStore.Default).pipe(
-            Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+          Layer.mergeAll(
+            TimelineService.Default,
+            StateStore.Default,
+            createFileLoggerLayer(path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.REPRODUCTION), {
+              replace: false,
+              format: 'logfmt',
+            }),
+          ).pipe(
+            Layer.provideMerge(
+              WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: false }),
+            ),
           ),
         ),
       ),
@@ -161,10 +165,12 @@ const reproduceIssue = ({
     const contextDir = workingDirService.paths.contextRepo
 
     // Initialize timeline
-    yield* timelineService.recordEvent({
-      event: 'phase.started',
-      phase: 'setup',
-    })
+    yield* timelineService.recordEvent(
+      createPhaseEvent({
+        event: 'phase.started',
+        phase: 'reproduction',
+      }),
+    )
 
     // Check for existing reproduction results
     const reproductionJson = yield* fs
@@ -195,10 +201,12 @@ const reproduceIssue = ({
           })
 
     yield* Effect.logDebug('[manager repro] Starting issue reproduction...')
-    yield* timelineService.recordEvent({
-      event: 'system.initialized',
-      phase: 'setup',
-    })
+    yield* timelineService.recordEvent(
+      createSystemEvent({
+        event: 'system.initialized',
+        phase: 'reproduction',
+      }),
+    )
 
     const reproductionResult = yield* llm
       .prompt(prompt, {
@@ -206,7 +214,7 @@ const reproduceIssue = ({
         useBestModel: true,
         skipPermissions: true,
         workingDir: contextDir,
-        debugLogPath: path.join(workingDirService.paths.logs, REPRODUCTION_LOG_FILE),
+        debugLogPath: path.join(workingDirService.paths.logs, LOG_FILES.REPRODUCTION_PROMPT),
       })
       .pipe(
         Effect.timeout('30 minutes'),
@@ -221,24 +229,28 @@ const reproduceIssue = ({
     yield* fs.writeFileString(reproductionFile, reproductionJsonContent)
 
     // Record timeline event
-    yield* timelineService.recordEvent({
-      event: reproductionResult._tag === 'Success' ? 'phase.completed' : 'phase.failed',
-      phase: 'setup',
-      details:
-        reproductionResult._tag === 'Success'
-          ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
-          : undefined,
-    })
+    const details =
+      reproductionResult._tag === 'Success'
+        ? { confidence: reproductionResult.confidence, type: reproductionResult.reproductionType }
+        : undefined
+    yield* timelineService.recordEvent(
+      createPhaseEvent({
+        event: reproductionResult._tag === 'Success' ? 'phase.completed' : 'phase.failed',
+        phase: 'reproduction',
+        ...(details && { details }), // Only include details if not undefined
+      }),
+    )
 
     // Update StateStore with reproduction results
     yield* stateStore.updateState((state) => ({
       ...state,
-      currentPhase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'setup',
+      // Stay in reproduction phase - let generate-hypotheses handle its own phase transition
+      currentPhase: 'reproduction',
       completedPhases:
-        reproductionResult._tag === 'Success' ? [...state.completedPhases, 'setup'] : state.completedPhases,
+        reproductionResult._tag === 'Success' ? [...state.completedPhases, 'reproduction'] : state.completedPhases,
       progress: {
         ...state.progress,
-        phase: reproductionResult._tag === 'Success' ? 'hypothesis-generation' : 'setup',
+        phase: 'reproduction',
         message:
           reproductionResult._tag === 'Success'
             ? 'Reproduction successful, ready for hypothesis generation'

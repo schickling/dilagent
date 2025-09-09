@@ -1,11 +1,11 @@
 import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as Path from 'node:path'
 import { Command } from '@effect/platform'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Effect, Layer } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { makeTempDir } from '../utils/fs.ts'
 import { GitManagerService } from './git-manager.ts'
 import { WorkingDirService } from './working-dir.ts'
 
@@ -17,19 +17,13 @@ describe('GitManagerService', () => {
   // Create test layer with all dependencies
   const TestLayer = (workingDir: string) =>
     GitManagerService.Default.pipe(
-      Layer.provideMerge(WorkingDirService.Default({ workingDir, create: true })),
+      Layer.provideMerge(WorkingDirService.Default({ workingDirectory: workingDir, create: true })),
       Layer.provideMerge(Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)),
     )
 
   beforeEach(async () => {
     // Create unique test directories for each test
-    testDir = await new Promise<string>((resolve, reject) => {
-      fs.mkdtemp(Path.join(os.tmpdir(), 'git-manager-test-'), (err, dir) => {
-        if (err) reject(err)
-        else resolve(dir)
-      })
-    })
-
+    testDir = makeTempDir('git-manager-test-')
     contextDir = Path.join(testDir, 'context')
     workingDir = Path.join(testDir, 'working')
 
@@ -130,7 +124,7 @@ describe('GitManagerService', () => {
           await Effect.runPromise(
             Effect.gen(function* () {
               const service = yield* GitManagerService
-              yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+              yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
 
               const contextRepoPath = Path.join(workingDir, '.dilagent', 'context-repo')
 
@@ -159,7 +153,7 @@ describe('GitManagerService', () => {
               const service = yield* GitManagerService
               const workingDirService = yield* WorkingDirService
 
-              yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+              yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
 
               const contextRepoPath = workingDirService.paths.contextRepo
 
@@ -196,7 +190,7 @@ describe('GitManagerService', () => {
           await Effect.runPromise(
             Effect.gen(function* () {
               const service = yield* GitManagerService
-              yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+              yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
 
               // Verify original context is unchanged
               const currentContent = fs.readFileSync(Path.join(contextDir, 'README.md'), 'utf-8')
@@ -242,7 +236,7 @@ describe('GitManagerService', () => {
           await Effect.runPromise(
             Effect.gen(function* () {
               const service = yield* GitManagerService
-              yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+              yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
 
               const contextRepoPath = Path.join(workingDir, '.dilagent', 'context-repo')
 
@@ -269,7 +263,7 @@ describe('GitManagerService', () => {
               // Get original branch
               const originalBranch = yield* service.getCurrentBranch(contextDir)
 
-              yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+              yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
 
               // Verify original repo is unchanged
               const currentBranch = yield* service.getCurrentBranch(contextDir)
@@ -293,7 +287,7 @@ describe('GitManagerService', () => {
 
       beforeEach(() => {
         // Create a git repository with subdirectories
-        gitRepoRoot = fs.mkdtempSync(Path.join(os.tmpdir(), 'git-repo-test-'))
+        gitRepoRoot = makeTempDir('git-repo-test-')
         gitSubdirContext = Path.join(gitRepoRoot, 'apps', 'backend')
 
         // Create repo structure
@@ -331,7 +325,10 @@ describe('GitManagerService', () => {
         await Effect.runPromise(
           Effect.gen(function* () {
             const service = yield* GitManagerService
-            const result = yield* service.setupContextRepo(gitSubdirContext, 'test-working-dir-id')
+            const result = yield* service.setupContextRepo({
+              contextDir: gitSubdirContext,
+              workingDirId: 'test-working-dir-id',
+            })
 
             const contextRepoPath = Path.join(workingDir, '.dilagent', 'context-repo')
 
@@ -363,7 +360,10 @@ describe('GitManagerService', () => {
         await Effect.runPromise(
           Effect.gen(function* () {
             const service = yield* GitManagerService
-            const result = yield* service.setupContextRepo(gitRepoRoot, 'test-working-dir-id')
+            const result = yield* service.setupContextRepo({
+              contextDir: gitRepoRoot,
+              workingDirId: 'test-working-dir-id',
+            })
 
             // Should return relative path as "." since context is at git root
             expect(result.relativePath).toBe('.')
@@ -385,7 +385,7 @@ describe('GitManagerService', () => {
         await Effect.runPromise(
           Effect.gen(function* () {
             const service = yield* GitManagerService
-            yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+            yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
           }).pipe(Effect.provide(TestLayer(workingDir))),
         )
       })
@@ -400,7 +400,7 @@ describe('GitManagerService', () => {
               workingDirId: 'test-working-dir-id',
             })
 
-            const worktreePath = Path.join(workingDir, 'H001-auth-bug')
+            const worktreePath = Path.join(workingDir, 'worktree-H001-auth-bug')
 
             // Verify worktree directory exists
             expect(fs.existsSync(worktreePath)).toBe(true)
@@ -437,12 +437,12 @@ describe('GitManagerService', () => {
             })
 
             // Verify both worktrees exist
-            expect(fs.existsSync(Path.join(workingDir, 'H001-auth-bug'))).toBe(true)
-            expect(fs.existsSync(Path.join(workingDir, 'H002-performance'))).toBe(true)
+            expect(fs.existsSync(Path.join(workingDir, 'worktree-H001-auth-bug'))).toBe(true)
+            expect(fs.existsSync(Path.join(workingDir, 'worktree-H002-performance'))).toBe(true)
 
             // Verify they're independent
-            const branch1 = yield* service.getCurrentBranch(Path.join(workingDir, 'H001-auth-bug'))
-            const branch2 = yield* service.getCurrentBranch(Path.join(workingDir, 'H002-performance'))
+            const branch1 = yield* service.getCurrentBranch(Path.join(workingDir, 'worktree-H001-auth-bug'))
+            const branch2 = yield* service.getCurrentBranch(Path.join(workingDir, 'worktree-H002-performance'))
 
             expect(branch1).toBe('dilagent/test-working-dir-id/H001-auth-bug')
             expect(branch2).toBe('dilagent/test-working-dir-id/H002-performance')
@@ -475,7 +475,7 @@ describe('GitManagerService', () => {
         await Effect.runPromise(
           Effect.gen(function* () {
             const service = yield* GitManagerService
-            yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+            yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
             yield* service.createHypothesisWorktree({
               hypothesisId: 'H001',
               hypothesisSlug: 'test-hypothesis',
@@ -494,7 +494,7 @@ describe('GitManagerService', () => {
             expect(worktrees.length).toBeGreaterThanOrEqual(2) // context-repo + hypothesis worktree
 
             // Find the hypothesis worktree
-            const hypothesisWorktree = worktrees.find((w) => w.path.includes('H001-test-hypothesis'))
+            const hypothesisWorktree = worktrees.find((w) => w.path.includes('worktree-H001-test-hypothesis'))
             expect(hypothesisWorktree).toBeDefined()
             expect(hypothesisWorktree?.branch).toBe('dilagent/test-working-dir-id/H001-test-hypothesis')
           }).pipe(Effect.provide(TestLayer(workingDir))),
@@ -508,7 +508,7 @@ describe('GitManagerService', () => {
         await Effect.runPromise(
           Effect.gen(function* () {
             const service = yield* GitManagerService
-            yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+            yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
             yield* service.createHypothesisWorktree({
               hypothesisId: 'H001',
               hypothesisSlug: 'test-hypothesis',
@@ -519,7 +519,7 @@ describe('GitManagerService', () => {
       })
 
       it('should remove worktree', async () => {
-        const worktreePath = Path.join(workingDir, 'H001-test-hypothesis')
+        const worktreePath = Path.join(workingDir, 'worktree-H001-test-hypothesis')
 
         // Verify worktree exists
         expect(fs.existsSync(worktreePath)).toBe(true)
@@ -542,7 +542,7 @@ describe('GitManagerService', () => {
         await Effect.runPromise(
           Effect.gen(function* () {
             const service = yield* GitManagerService
-            yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+            yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
           }).pipe(Effect.provide(TestLayer(workingDir))),
         )
       })
@@ -594,7 +594,7 @@ describe('GitManagerService', () => {
             const service = yield* GitManagerService
 
             // Setup context repo
-            yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+            yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
 
             // Create multiple hypothesis worktrees
             yield* service.createHypothesisWorktree({
@@ -624,7 +624,7 @@ describe('GitManagerService', () => {
           Effect.gen(function* () {
             const service = yield* GitManagerService
 
-            yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+            yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
             yield* service.createHypothesisWorktree({
               hypothesisId: 'H001',
               hypothesisSlug: 'test1',
@@ -636,8 +636,8 @@ describe('GitManagerService', () => {
               workingDirId: 'test-working-dir-id',
             })
 
-            const worktree1 = Path.join(workingDir, 'H001-test1')
-            const worktree2 = Path.join(workingDir, 'H002-test2')
+            const worktree1 = Path.join(workingDir, 'worktree-H001-test1')
+            const worktree2 = Path.join(workingDir, 'worktree-H002-test2')
 
             // Modify file in first worktree
             fs.writeFileSync(Path.join(worktree1, 'test1.txt'), 'hypothesis 1 changes')
@@ -667,7 +667,7 @@ describe('GitManagerService', () => {
           const service = yield* GitManagerService
 
           // Use setupContextRepo as commands now do
-          yield* service.setupContextRepo(contextDir, 'test-working-dir-id')
+          yield* service.setupContextRepo({ contextDir, workingDirId: 'test-working-dir-id' })
 
           const contextRepoPath = Path.join(workingDir, '.dilagent/context-repo')
           const gitExists = fs.existsSync(Path.join(contextRepoPath, '.git'))

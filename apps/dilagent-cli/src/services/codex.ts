@@ -8,7 +8,7 @@ import { getWriteToLogFile, LLMError, type LLMOptions, LLMService, type MCPConfi
 export const CodexModel = Schema.Literal('gpt-5', 'gpt-5-high', 'gpt-5-medium', 'gpt-5-low')
 export type CodexModel = typeof CodexModel.Type
 
-export const CodexSandboxMode = Schema.Literal('read-only', 'workspace-write', 'danger-full-access')
+export const CodexSandboxMode = Schema.Literal('read-only', 'working directory-write', 'danger-full-access')
 export type CodexSandboxMode = typeof CodexSandboxMode.Type
 
 /**
@@ -190,33 +190,32 @@ const prompt = (
 const promptStream = (
   input: string,
   options: LLMOptions = {},
-): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor> =>
-  Stream.fromEffect(
-    Effect.gen(function* () {
-      // Map LLM options to Codex-specific options
-      const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
+): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor | FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    // Map LLM options to Codex-specific options
+    const sandboxMode: CodexSandboxMode = options.skipPermissions ? 'danger-full-access' : 'read-only'
 
-      return yield* buildCommand(input, {
-        ...options,
-        sandboxMode,
-        jsonOutput: false, // Non-JSON for streaming
-      })
-    }),
-  ).pipe(
-    Stream.flatMap((command) =>
-      Command.streamLines(command).pipe(
-        Stream.withSpan('codex.executeStream'),
-        Stream.mapError(
-          (cause) =>
-            new LLMError({
-              cause,
-              note: 'Failed to stream from Codex CLI',
-              prompt: input,
-            }),
-        ),
+    const writeToLogFile = yield* getWriteToLogFile(options)
+
+    const command = yield* buildCommand(input, {
+      ...options,
+      sandboxMode,
+      jsonOutput: false, // Non-JSON for streaming
+    })
+
+    return Command.streamLines(command).pipe(
+      Stream.tap(writeToLogFile),
+      Stream.withSpan('codex.executeStream'),
+      Stream.mapError(
+        (cause) =>
+          new LLMError({
+            cause,
+            note: 'Failed to stream from Codex CLI',
+            prompt: input,
+          }),
       ),
-    ),
-  )
+    )
+  }).pipe(Stream.unwrapScoped)
 
 /**
  * Codex implementation of the LLM service

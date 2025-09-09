@@ -90,15 +90,30 @@ const makeHandlers = Effect.gen(function* () {
   const store = yield* StateStore
 
   return toolkit.of({
-    dilagent_hypothesis_update_status: ({ hypothesisId, phase, status }) =>
+    /**
+     * Update hypothesis progress with detailed status information
+     * Stores complete progress data including phase, experiments, and evidence
+     */
+    dilagent_hypothesis_update_status: ({ hypothesisId, phase, experimentId, status, evidence }) =>
       Effect.gen(function* () {
         yield* Effect.logDebug(`[MCP] dilagent_hypothesis_update_status called for ${hypothesisId} in ${phase} phase`)
 
-        // Update hypothesis status in DilagentState
+        // Create complete status update with all provided information
+        const statusUpdate: HypothesisStatusUpdate = {
+          _tag: 'HypothesisStatusUpdate',
+          hypothesisId,
+          phase,
+          experimentId,
+          status,
+          evidence,
+        }
+
+        // Store both the status and the detailed update
         yield* store.updateHypothesis({
           id: hypothesisId,
           update: {
             status: 'running',
+            currentStatusUpdate: statusUpdate,
           },
         })
 
@@ -107,6 +122,9 @@ const makeHandlers = Effect.gen(function* () {
         return message
       }).pipe(Effect.orDie),
 
+    /**
+     * Set final hypothesis result and mark as completed
+     */
     dilagent_hypothesis_set_result: ({ hypothesisId, result }) =>
       Effect.gen(function* () {
         yield* Effect.logDebug(`[MCP] dilagent_hypothesis_set_result called for ${hypothesisId}: ${result._tag}`)
@@ -128,17 +146,20 @@ const makeHandlers = Effect.gen(function* () {
         return message
       }).pipe(Effect.orDie),
 
+    /**
+     * Get current status of all hypotheses for worker coordination
+     */
     dilagent_hypothesis_get_status_all: () =>
       Effect.gen(function* () {
         yield* Effect.logDebug(`[MCP] dilagent_hypothesis_get_status_all called`)
 
         const state = yield* store.getState()
         const hypotheses = Object.values(state.hypotheses).map((h) => {
-          // Create a compatible status update format
-          const currentStatus: HypothesisStatusUpdate = {
-            _tag: 'HypothesisStatusUpdate',
+          // Use actual status update when available, otherwise create fallback
+          const currentStatus = h.currentStatusUpdate ?? {
+            _tag: 'HypothesisStatusUpdate' as const,
             hypothesisId: h.id,
-            phase: h.status === 'running' ? 'TESTING' : 'DESIGNING',
+            phase: h.status === 'running' ? ('TESTING' as const) : ('DESIGNING' as const),
             status: `Status: ${h.status}${h.result ? ` (${h.result._tag === 'Proven' ? h.result.findings : h.result._tag === 'Disproven' ? h.result.reason : h.result.intractableReason})` : ''}`,
             evidence: `Worktree: ${h.worktreePath}`,
           }
@@ -153,6 +174,10 @@ const makeHandlers = Effect.gen(function* () {
         return { hypotheses }
       }).pipe(Effect.orDie),
 
+    /**
+     * Clear all hypothesis state and reset to pending
+     * Used for testing and debugging
+     */
     dilagent_state_clear: () =>
       Effect.gen(function* () {
         yield* Effect.logDebug(`[MCP] dilagent_state_clear called`)
@@ -164,6 +189,7 @@ const makeHandlers = Effect.gen(function* () {
             ...h,
             status: 'pending' as const,
             result: undefined,
+            currentStatusUpdate: undefined,
             startedAt: undefined,
             completedAt: undefined,
           })),

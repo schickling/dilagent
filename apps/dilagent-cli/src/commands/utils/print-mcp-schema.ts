@@ -2,7 +2,7 @@ import * as os from 'node:os'
 import * as Cli from '@effect/cli'
 import { HttpClient, HttpClientRequest } from '@effect/platform'
 import { NodeContext } from '@effect/platform-node'
-import { Effect, Layer } from 'effect'
+import { Effect, Layer, Logger } from 'effect'
 import { getFreePort } from '../../services/free-port.ts'
 import { createMcpServerLayer } from '../../services/mcp-server.ts'
 import { StateStore } from '../../services/state-store.ts'
@@ -62,10 +62,10 @@ export const printMcpSchemaCommand = Cli.Command.make('print-mcp-schema', {}, ()
       Effect.provide(
         Layer.mergeAll(
           Layer.provide(createMcpServerLayer(port), Layer.mergeAll(StateStore.Default)).pipe(
-            Layer.provideMerge(WorkingDirService.Default({ workingDir: os.tmpdir(), create: true })),
+            Layer.provideMerge(WorkingDirService.Default({ workingDirectory: os.tmpdir(), create: true })),
           ),
           NodeContext.layer,
-        ),
+        ).pipe(Layer.provide(Logger.remove(Logger.prettyLoggerDefault))),
       ),
       Effect.scoped,
     ),

@@ -1,11 +1,13 @@
 import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { Effect, Layer, Option } from 'effect'
+import { createPhaseEvent } from '../../schemas/file-management.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { GitManagerService } from '../../services/git-manager.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { contextDirectoryOption, cwdOption, promptOption, workingDirectoryOption } from './shared.ts'
+import { contextDirectoryOption, cwdOption, LOG_FILES, promptOption, workingDirectoryOption } from './shared.ts'
 
 export const setupCommand = Cli.Command.make(
   'setup',
@@ -21,7 +23,7 @@ export const setupCommand = Cli.Command.make(
     const resolvedWorkingDirectory = path.resolve(resolvedCwd, workingDirectory)
 
     return Effect.gen(function* () {
-      yield* Effect.logDebug('[manager setup] 🚀 Phase 0: Setting up workspace...')
+      yield* Effect.logDebug('[manager setup] 🚀 Phase 0: Setting up working directory...')
 
       // Get problem prompt interactively if not provided
       const problemPrompt = yield* Option.match(prompt, {
@@ -38,25 +40,30 @@ export const setupCommand = Cli.Command.make(
       const stateStore = yield* StateStore
       const gitManager = yield* GitManagerService
 
-      yield* Effect.logDebug('[manager setup] 🚀 Setting up Dilagent workspace...')
+      yield* Effect.logDebug('[manager setup] 🚀 Setting up Dilagent working directory...')
       yield* Effect.logDebug(`[manager setup] Problem: ${problemPrompt}`)
 
       // Record setup initialization
-      yield* timelineService.recordEvent({
-        event: 'phase.started',
-        phase: 'setup',
-        details: {
-          contextDirectory: resolvedContextDirectory,
-          workingDirectory: resolvedWorkingDirectory,
-        },
-      })
+      yield* timelineService.recordEvent(
+        createPhaseEvent({
+          event: 'phase.started',
+          phase: 'setup',
+          details: {
+            contextDirectory: resolvedContextDirectory,
+            workingDirectory: resolvedWorkingDirectory,
+          },
+        }),
+      )
 
       // Setup git context repository
       yield* Effect.logDebug(`[manager setup] 📁 Setting up context repository from: ${resolvedContextDirectory}`)
 
       // Get the workingDirId from the state for branch naming
       const state = yield* stateStore.getState()
-      const contextSetupResult = yield* gitManager.setupContextRepo(resolvedContextDirectory, state.workingDirId)
+      const contextSetupResult = yield* gitManager.setupContextRepo({
+        contextDir: resolvedContextDirectory,
+        workingDirId: state.workingDirId,
+      })
 
       yield* Effect.logDebug(
         `[manager setup] Context setup result: contextRepoPath=${contextSetupResult.contextRepoPath}, relativePath=${contextSetupResult.relativePath}`,
@@ -77,17 +84,22 @@ export const setupCommand = Cli.Command.make(
         },
       }))
 
-      // Record successful setup completion
-      yield* timelineService.recordEvent({
-        event: 'phase.completed',
-        phase: 'setup',
-        details: {
-          contextDirectory: resolvedContextDirectory,
-          workingDirectory: resolvedWorkingDirectory,
-        },
-      })
+      // Record successful setup completion and transition to reproduction phase
+      yield* timelineService.recordEvent(
+        createPhaseEvent({
+          event: 'phase.completed',
+          phase: 'setup',
+          details: {
+            contextDirectory: resolvedContextDirectory,
+            workingDirectory: resolvedWorkingDirectory,
+          },
+        }),
+      )
+      
+      // Transition to reproduction phase
+      yield* stateStore.setPhase('reproduction')
 
-      yield* Effect.logDebug('[manager setup] ✅ Dilagent workspace setup complete!')
+      yield* Effect.logDebug('[manager setup] ✅ Dilagent working directory setup complete!')
       yield* Effect.logDebug(`[manager setup]   Working directory: ${resolvedWorkingDirectory}`)
       yield* Effect.logDebug(`[manager setup]   Context repository: ${resolvedContextDirectory}`)
 
@@ -98,10 +110,18 @@ export const setupCommand = Cli.Command.make(
       }
     }).pipe(
       Effect.provide(
-        Layer.mergeAll(GitManagerService.Default, TimelineService.Default, StateStore.Default).pipe(
-          Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: true })),
+        Layer.mergeAll(
+          GitManagerService.Default,
+          TimelineService.Default,
+          StateStore.Default,
+          createFileLoggerLayer(path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.SETUP), {
+            replace: false,
+            format: 'logfmt',
+          }),
+        ).pipe(
+          Layer.provideMerge(WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: true })),
         ),
       ),
     )
   },
-).pipe(Cli.Command.withDescription('Initialize Dilagent workspace with git repository and directory structure'))
+).pipe(Cli.Command.withDescription('Initialize Dilagent working directory with git repository and directory structure'))

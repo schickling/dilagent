@@ -73,18 +73,20 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
 
     const recordEvent = (event: Omit<TimelineEvent, 'timestamp'>) =>
       Effect.gen(function* () {
-        const fullEvent: TimelineEvent = {
+        // Create the full event with timestamp first
+        const timestamp = new Date().toISOString()
+        const fullEvent = {
           ...event,
-          timestamp: new Date().toISOString(),
-        }
+          timestamp,
+        } as TimelineEvent // Type assertion since we know the structure is correct
 
-        // Validate event
+        // Validate event using the new tagged union schema
         const validatedEvent = yield* Schema.decodeUnknown(TimelineEventSchema)(fullEvent).pipe(
           Effect.catchAll(
             (error) =>
               new TimelineError({
                 cause: error,
-                message: `Invalid event structure: ${event.event}`,
+                message: `Invalid event structure: ${event._tag} - ${event.event}`,
                 operation: 'recordEvent',
               }),
           ),
@@ -99,7 +101,7 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
         // Auto-persist
         yield* persist
 
-        yield* Effect.logDebug(`[TimelineService] Recorded event: ${event.event}`)
+        yield* Effect.logDebug(`[TimelineService] Recorded event: ${event._tag} - ${event.event}`)
         return validatedEvent
       })
 
@@ -110,8 +112,21 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
         if (!filter) return timeline.events
 
         return timeline.events.filter((event) => {
-          if (filter.phase && event.phase !== filter.phase) return false
-          if (filter.hypothesisId && event.hypothesisId !== filter.hypothesisId) return false
+          // Phase filter - check the phase field based on event type
+          if (filter.phase) {
+            const eventPhase =
+              event._tag === 'SystemEvent' || event._tag === 'UserEvent' || event._tag === 'GitEvent'
+                ? event.phase // These can have undefined phase
+                : event.phase // PhaseEvent and HypothesisEvent always have phase
+            if (eventPhase !== filter.phase) return false
+          }
+
+          // Hypothesis ID filter - only available on HypothesisEvent
+          if (filter.hypothesisId) {
+            if (event._tag !== 'HypothesisEvent') return false
+            if (event.hypothesisId !== filter.hypothesisId) return false
+          }
+
           return true
         })
       })
@@ -122,7 +137,12 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
 
         const eventsByPhase = timeline.events.reduce(
           (acc, event) => {
-            if (event.phase) acc[event.phase] = (acc[event.phase] || 0) + 1
+            // Get phase based on event type - some events may have undefined phase
+            const eventPhase =
+              event._tag === 'SystemEvent' || event._tag === 'UserEvent' || event._tag === 'GitEvent'
+                ? event.phase // These can have undefined phase
+                : event.phase // PhaseEvent and HypothesisEvent always have phase
+            if (eventPhase) acc[eventPhase] = (acc[eventPhase] || 0) + 1
             return acc
           },
           {} as Record<string, number>,
@@ -130,7 +150,10 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
 
         const eventsByHypothesis = timeline.events.reduce(
           (acc, event) => {
-            if (event.hypothesisId) acc[event.hypothesisId] = (acc[event.hypothesisId] || 0) + 1
+            // Only HypothesisEvent has hypothesisId (but it can be undefined for general events)
+            if (event._tag === 'HypothesisEvent' && event.hypothesisId) {
+              acc[event.hypothesisId] = (acc[event.hypothesisId] || 0) + 1
+            }
             return acc
           },
           {} as Record<string, number>,
@@ -192,11 +215,17 @@ export class TimelineService extends Effect.Service<TimelineService>()('Timeline
           const time = new Date(event.timestamp).toISOString().replace('T', ' ').replace('Z', '')
           let eventLine = `- **${time}** - ${event.event}`
 
-          if (event.phase) {
-            eventLine += ` (${event.phase})`
+          // Add phase info based on event type
+          const eventPhase =
+            event._tag === 'SystemEvent' || event._tag === 'UserEvent' || event._tag === 'GitEvent'
+              ? event.phase // These can have undefined phase
+              : event.phase // PhaseEvent and HypothesisEvent always have phase
+          if (eventPhase) {
+            eventLine += ` (${eventPhase})`
           }
 
-          if (event.hypothesisId) {
+          // Add hypothesis ID only for HypothesisEvent (if available)
+          if (event._tag === 'HypothesisEvent' && event.hypothesisId) {
             eventLine += ` [${event.hypothesisId}]`
           }
 

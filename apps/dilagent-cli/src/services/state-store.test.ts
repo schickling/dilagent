@@ -1,16 +1,18 @@
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as Path from 'node:path'
 import { FileSystem } from '@effect/platform'
 import { NodeContext, NodeFileSystem } from '@effect/platform-node'
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DilagentState } from '../schemas/file-management.ts'
+import { makeTempDir } from '../utils/fs.ts'
+import { dilagentVersion } from '../utils/version.ts'
 import { StateStore } from './state-store.ts'
 import { WorkingDirService } from './working-dir.ts'
 
 // Helper function to create expected default state
 const createExpectedDefaultState = (workingDir: string): DilagentState => ({
+  dilagentVersion,
   workingDirId: expect.any(String),
   problemPrompt: '',
   contextDirectory: workingDir,
@@ -43,20 +45,14 @@ describe('StateStore', () => {
   // Create test layer with all dependencies
   const PlatformLayer = Layer.mergeAll(NodeContext.layer, NodeFileSystem.layer)
   const WorkingDirLayer = (testDir: string) =>
-    WorkingDirService.Default({ workingDir: testDir, create: true }).pipe(Layer.provideMerge(PlatformLayer))
+    WorkingDirService.Default({ workingDirectory: testDir, create: true }).pipe(Layer.provideMerge(PlatformLayer))
   const ServiceLayer = (testDir: string) => StateStore.Default.pipe(Layer.provideMerge(WorkingDirLayer(testDir)))
   const TestLayer = (testDir: string) =>
     Layer.mergeAll(PlatformLayer, WorkingDirLayer(testDir), ServiceLayer(testDir)).pipe(Layer.orDie)
 
   beforeEach(async () => {
     // Create unique test directory for each test
-    testDir = await new Promise<string>((resolve, reject) => {
-      fs.mkdtemp(Path.join(os.tmpdir(), 'state-store-test-'), (err, dir) => {
-        if (err) reject(err)
-        else resolve(dir)
-      })
-    })
-
+    testDir = makeTempDir('state-store-test-')
     runtime = ManagedRuntime.make(TestLayer(testDir))
   })
 
@@ -94,7 +90,7 @@ describe('StateStore', () => {
         // Verify the state was updated in memory
         const updatedState = yield* store.getState()
         expect(updatedState.currentPhase).toBe('hypothesis-generation')
-        expect(updatedState.completedPhases).toContain('hypothesis-generation')
+        expect(updatedState.completedPhases).toContain('setup') // Previous phase should be marked as completed
 
         // Verify the state was persisted to disk
         const fileContent = yield* fs.readFileString(workingDir.paths.stateFile)
@@ -180,6 +176,7 @@ describe('StateStore', () => {
     it('should load existing state from file on initialization', async () => {
       // Pre-create a state file
       const existingState: DilagentState = {
+        dilagentVersion,
         workingDirId: '550e8400-e29b-41d4-a716-446655440000',
         problemPrompt: 'Existing problem description',
         contextDirectory: testDir,
@@ -191,7 +188,8 @@ describe('StateStore', () => {
             slug: 'existing-hyp',
             description: 'Existing hypothesis',
             status: 'running',
-            worktreePath: Path.join(testDir, 'H001-existing-hyp'),
+            worktreePath: Path.join(testDir, 'worktree-H001-existing-hyp'),
+            metadataPath: Path.join(testDir, '.dilagent', 'H001-existing-hyp'),
             branchName: 'dilagent/550e8400-e29b-41d4-a716-446655440000/H001-existing-hyp',
             startedAt: '2025-09-08T10:00:00Z',
             completedAt: undefined,

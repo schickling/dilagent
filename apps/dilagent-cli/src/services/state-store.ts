@@ -4,6 +4,7 @@ import { FileSystem } from '@effect/platform'
 import { Effect, type ParseResult, Ref, Schema } from 'effect'
 import type { DilagentState, HypothesisId, HypothesisState } from '../schemas/file-management.ts'
 import { DilagentState as DilagentStateSchema } from '../schemas/file-management.ts'
+import { dilagentVersion } from '../utils/version.ts'
 import { WorkingDirService } from './working-dir.ts'
 
 // Error types for StateStore
@@ -34,6 +35,7 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
 
     // Helper to create default state
     const createDefaultState = (): DilagentState => ({
+      dilagentVersion,
       workingDirId: crypto.randomUUID(),
       problemPrompt: '', // Will be set during setup
       contextDirectory: workingDir.workingDir,
@@ -59,51 +61,9 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
       },
     })
 
-    // Helper to migrate old state files
-    const migrateState = (rawState: any): DilagentState => {
-      // If workingDirId is missing, add it
-      if (!rawState.workingDirId) {
-        rawState.workingDirId = crypto.randomUUID()
-      }
-      
-      // If problemPrompt is missing, add empty string
-      if (!rawState.problemPrompt) {
-        rawState.problemPrompt = ''
-      }
-      
-      // If contextRelativePath is missing, set to undefined
-      if (!rawState.hasOwnProperty('contextRelativePath')) {
-        rawState.contextRelativePath = undefined
-      }
-
-      // Migrate old hypothesis result formats
-      if (rawState.hypotheses && typeof rawState.hypotheses === 'object') {
-        for (const [hypothesisId, hypothesis] of Object.entries(rawState.hypotheses as any)) {
-          if (hypothesis && typeof hypothesis === 'object') {
-            const h = hypothesis as any
-            // If result exists but doesn't have _tag, it's an old format - remove it
-            if (h.result && typeof h.result === 'object' && !h.result._tag) {
-              // Clear invalid result - let it be set properly through MCP tools
-              h.result = undefined
-            }
-          }
-        }
-      }
-      
-      return rawState as DilagentState
-    }
-
     // Read existing state or create default - happens ONCE during init
     const initialState = yield* fs.readFileString(workingDir.paths.stateFile).pipe(
-      Effect.flatMap((content) => 
-        Effect.try({
-          try: () => JSON.parse(content),
-          catch: (error) => new StateStoreError({ cause: error, message: 'Failed to parse state file JSON' })
-        }).pipe(
-          Effect.map(migrateState),
-          Effect.flatMap((migrated) => Schema.decodeUnknown(DilagentStateSchema)(migrated))
-        )
-      ),
+      Effect.flatMap((content) => Schema.decodeUnknown(Schema.parseJson(DilagentStateSchema))(content)),
       Effect.catchIf(
         (_) => _._tag === 'SystemError' && _.reason === 'NotFound',
         () =>
@@ -111,6 +71,7 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
             Effect.tap(Effect.logDebug('[StateStore] No existing state found, creating default')),
           ),
       ),
+      Effect.withSpan('StateStore.initialState'),
     )
 
     // Internal mutable reference
@@ -131,7 +92,7 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
         ),
       )
       yield* Effect.logDebug('[StateStore] State persisted')
-    })
+    }).pipe(Effect.withSpan('StateStore.persist'))
 
     // Do initial persist
     yield* persist
@@ -146,20 +107,30 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
         const newState = yield* Ref.updateAndGet(stateRef, updater)
         yield* persist
         return newState
-      })
+      }).pipe(Effect.withSpan('StateStore.updateState'))
 
-    const registerHypothesis = ({ id, slug, description }: { id: HypothesisId; slug: string; description: string }) =>
+    const registerHypothesis = ({
+      id: hypothesisId,
+      slug,
+      description,
+    }: {
+      id: HypothesisId
+      slug: string
+      description: string
+    }) =>
       updateState((s) => ({
         ...s,
         hypotheses: {
           ...s.hypotheses,
-          [id]: {
-            id,
+          [hypothesisId]: {
+            dilagentVersion,
+            id: hypothesisId,
             slug,
             description,
             status: 'pending',
-            worktreePath: Path.join(s.workingDirectory, `${id}-${slug}`),
-            branchName: `dilagent/${s.workingDirId}/${id}-${slug}`,
+            worktreePath: Path.join(s.workingDirectory, `worktree-${hypothesisId}-${slug}`),
+            metadataPath: Path.join(s.workingDirectory, '.dilagent', `${hypothesisId}-${slug}`),
+            branchName: `dilagent/${s.workingDirId}/${hypothesisId}-${slug}`,
             startedAt: undefined,
             completedAt: undefined,
             result: undefined,
@@ -169,53 +140,71 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
           ...s.metrics,
           hypothesesGenerated: s.metrics.hypothesesGenerated + 1,
         },
-      }))
+      })).pipe(Effect.withSpan('StateStore.updateHypothesis'))
 
     const updateHypothesis = ({ id, update }: { id: HypothesisId; update: Partial<HypothesisState> }) =>
-      updateState((s) => ({
-        ...s,
-        hypotheses: {
-          ...s.hypotheses,
-          [id]: { ...s.hypotheses[id]!, ...update },
-        },
-        // Update metrics based on status changes
-        metrics: (() => {
-          const oldStatus = s.hypotheses[id]?.status
-          const newStatus = update.status
+      updateState((s) => {
+        // Validation: completed hypotheses must have a result
+        if (update.status === 'completed' && !update.result) {
+          throw new Error(`Cannot mark hypothesis ${id} as completed without a result`)
+        }
 
-          if (oldStatus !== newStatus) {
-            const metrics = { ...s.metrics }
+        return {
+          ...s,
+          hypotheses: {
+            ...s.hypotheses,
+            [id]: { ...s.hypotheses[id]!, ...update },
+          },
+          // Update metrics based on status changes
+          metrics: (() => {
+            const oldStatus = s.hypotheses[id]?.status
+            const newStatus = update.status
 
-            if (newStatus === 'completed') {
-              metrics.hypothesesCompleted += 1
-              if (update.result?._tag === 'Proven') {
-                metrics.hypothesesSuccessful += 1
-              } else {
+            if (oldStatus !== newStatus && newStatus) {
+              const metrics = { ...s.metrics }
+
+              // Only increment counters when transitioning TO these states
+              if (newStatus === 'completed') {
+                metrics.hypothesesCompleted += 1
+                // Only count as success/failure based on result
+                if (update.result?._tag === 'Proven') {
+                  metrics.hypothesesSuccessful += 1
+                } else if (update.result) {
+                  // Only increment failed if we have a result (not Proven)
+                  metrics.hypothesesFailed += 1
+                }
+              } else if (newStatus === 'failed') {
                 metrics.hypothesesFailed += 1
+              } else if (newStatus === 'skipped') {
+                metrics.hypothesesSkipped += 1
               }
-            } else if (newStatus === 'failed') {
-              metrics.hypothesesFailed += 1
-            } else if (newStatus === 'skipped') {
-              metrics.hypothesesSkipped += 1
+
+              return metrics
             }
 
-            return metrics
-          }
-
-          return s.metrics
-        })(),
-      }))
+            return s.metrics
+          })(),
+        }
+      }).pipe(Effect.withSpan('StateStore.updateHypothesis'))
 
     const setPhase = (phase: DilagentState['currentPhase']) =>
-      updateState((s) => ({
-        ...s,
-        currentPhase: phase,
-        completedPhases: s.completedPhases.includes(phase) ? s.completedPhases : [...s.completedPhases, phase],
-        progress: {
-          ...s.progress,
-          phase: phase,
-        },
-      }))
+      updateState((s) => {
+        // Mark previous phase as completed when transitioning
+        const newCompletedPhases =
+          s.currentPhase && s.currentPhase !== phase && !s.completedPhases.includes(s.currentPhase)
+            ? [...s.completedPhases, s.currentPhase]
+            : s.completedPhases
+
+        return {
+          ...s,
+          currentPhase: phase,
+          completedPhases: newCompletedPhases,
+          progress: {
+            ...s.progress,
+            phase: phase,
+          },
+        }
+      })
 
     const updateProgress = (progress: Partial<DilagentState['progress']>) =>
       updateState((s) => ({
@@ -224,7 +213,7 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
           ...s.progress,
           ...progress,
         },
-      }))
+      })).pipe(Effect.withSpan('StateStore.updateProgress'))
 
     const completeRun = () =>
       updateState((s) => ({
@@ -234,7 +223,7 @@ export class StateStore extends Effect.Service<StateStore>()('StateStore', {
           ...s.metrics,
           endTime: new Date().toISOString(),
         },
-      }))
+      })).pipe(Effect.withSpan('StateStore.completeRun'))
 
     return {
       getState,

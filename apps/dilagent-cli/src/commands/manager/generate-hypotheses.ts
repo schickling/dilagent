@@ -3,11 +3,12 @@ import * as Cli from '@effect/cli'
 import { Effect, Layer, Option } from 'effect'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { GitManagerService } from '../../services/git-manager.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { countOption, cwdOption, generateHypotheses, llmOption, workingDirectoryOption } from './shared.ts'
+import { hypothesisCountOption, cwdOption, generateHypotheses, LOG_FILES, llmOption, workingDirectoryOption } from './shared.ts'
 
 /**
  * Command to generate testable hypotheses for debugging
@@ -30,11 +31,11 @@ export const generateHypothesesCommand = Cli.Command.make(
   'generate-hypotheses',
   {
     workingDirectory: workingDirectoryOption,
-    count: countOption,
+    hypothesisCount: hypothesisCountOption,
     llm: llmOption,
     cwd: cwdOption,
   },
-  ({ workingDirectory, count, llm, cwd }) => {
+  ({ workingDirectory, hypothesisCount, llm, cwd }) => {
     const resolvedCwd = Option.getOrElse(cwd, () => process.cwd())
     const resolvedWorkingDirectory = path.resolve(resolvedCwd, workingDirectory)
 
@@ -46,17 +47,17 @@ export const generateHypothesesCommand = Cli.Command.make(
       const state = yield* stateStore.getState()
       const problemPrompt = state.problemPrompt
 
-      const hypothesisCount = Option.getOrElse(count, () => undefined)
+      const resolvedHypothesisCount = Option.getOrElse(hypothesisCount, () => undefined)
 
       yield* Effect.logDebug(`[manager generate-hypotheses] Working directory: ${resolvedWorkingDirectory}`)
       yield* Effect.logDebug(`[manager generate-hypotheses] Problem: ${problemPrompt}`)
-      if (hypothesisCount) {
-        yield* Effect.logDebug(`[manager generate-hypotheses] Generating ${hypothesisCount} hypotheses`)
+      if (resolvedHypothesisCount) {
+        yield* Effect.logDebug(`[manager generate-hypotheses] Generating ${resolvedHypothesisCount} hypotheses`)
       }
 
       const hypotheses = yield* generateHypotheses({
         problemPrompt,
-        ...(hypothesisCount !== undefined && { hypothesisCount }),
+        ...(resolvedHypothesisCount !== undefined && { hypothesisCount: resolvedHypothesisCount }),
       })
 
       yield* Effect.logDebug(
@@ -70,8 +71,18 @@ export const generateHypothesesCommand = Cli.Command.make(
       Effect.provide(
         Layer.mergeAll(
           llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
-          Layer.mergeAll(GitManagerService.Default, TimelineService.Default, StateStore.Default).pipe(
-            Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+          Layer.mergeAll(
+            GitManagerService.Default,
+            TimelineService.Default,
+            StateStore.Default,
+            createFileLoggerLayer(
+              path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.GENERATE_HYPOTHESES),
+              { replace: false, format: 'logfmt' },
+            ),
+          ).pipe(
+            Layer.provideMerge(
+              WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: false }),
+            ),
           ),
         ),
       ),

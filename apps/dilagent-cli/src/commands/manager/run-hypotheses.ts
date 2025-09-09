@@ -2,8 +2,10 @@ import path from 'node:path'
 import * as Cli from '@effect/cli'
 import { Effect, Layer, Option } from 'effect'
 import { runRepl } from '../../repl.ts'
+import { createPhaseEvent } from '../../schemas/file-management.ts'
 import { ClaudeLLMLive } from '../../services/claude.ts'
 import { CodexLLMLive } from '../../services/codex.ts'
+import { createFileLoggerLayer } from '../../services/file-logger.ts'
 import { getFreePort } from '../../services/free-port.ts'
 import { GitManagerService } from '../../services/git-manager.ts'
 import { createMcpServerLayer } from '../../services/mcp-server.ts'
@@ -12,6 +14,7 @@ import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
 import {
   cwdOption,
+  LOG_FILES,
   llmOption,
   loadExperiments,
   portOption,
@@ -70,10 +73,12 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
         yield* Effect.logDebug(`[manager run-hypotheses] Context directory: ${resolvedContextDirectory}`)
 
         // Record timeline event
-        yield* timelineService.recordEvent({
-          event: 'phase.started',
-          phase: 'hypothesis-testing',
-        })
+        yield* timelineService.recordEvent(
+          createPhaseEvent({
+            event: 'phase.started',
+            phase: 'hypothesis-testing',
+          }),
+        )
 
         // Load hypotheses from canonical location
         const hypotheses = yield* loadExperiments()
@@ -90,6 +95,7 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
               hypothesis,
               llm,
               cwd,
+              workingDir: resolvedWorkingDirectory,
             }),
           { concurrency: 4 },
         ).pipe(Effect.tapErrorCause(Effect.logError), Effect.forkScoped)
@@ -104,10 +110,12 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
         yield* fiber
 
         // Record phase completion
-        yield* timelineService.recordEvent({
-          event: 'phase.completed',
-          phase: 'hypothesis-testing',
-        })
+        yield* timelineService.recordEvent(
+          createPhaseEvent({
+            event: 'phase.completed',
+            phase: 'hypothesis-testing',
+          }),
+        )
       }).pipe(
         Effect.provide(
           Layer.provideMerge(
@@ -115,7 +123,15 @@ export const runHypothesisWorkersCommand = Cli.Command.make(
             Layer.mergeAll(
               llm === 'claude' ? ClaudeLLMLive : CodexLLMLive,
               Layer.mergeAll(GitManagerService.Default, TimelineService.Default, StateStore.Default).pipe(
-                Layer.provideMerge(WorkingDirService.Default({ workingDir: resolvedWorkingDirectory, create: false })),
+                Layer.provideMerge(
+                  WorkingDirService.Default({ workingDirectory: resolvedWorkingDirectory, create: false }),
+                ),
+                Layer.provideMerge(
+                  createFileLoggerLayer(
+                    path.join(resolvedWorkingDirectory, '.dilagent', 'logs', LOG_FILES.RUN_HYPOTHESES),
+                    { replace: false, format: 'logfmt' },
+                  ),
+                ),
               ),
             ),
           ),

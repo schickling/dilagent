@@ -60,7 +60,7 @@ ${timeline.events
   .slice(-10) // Show last 10 key events
   .map(
     (event) =>
-      `- **${event.timestamp}**: ${event.event}${event.hypothesisId ? ` (${event.hypothesisId})` : ''}${event.phase ? ` [${event.phase}]` : ''}`,
+      `- **${event.timestamp}**: ${event.event}${event._tag === 'HypothesisEvent' && event.hypothesisId ? ` (${event.hypothesisId})` : ''}${event._tag !== 'UserEvent' && event._tag !== 'GitEvent' ? ` [${event.phase}]` : event.phase ? ` [${event.phase}]` : ''}`,
   )
   .join('\n')}
 

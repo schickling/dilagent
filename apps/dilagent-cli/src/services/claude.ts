@@ -77,8 +77,16 @@ const prompt = (
 
       const last = yield* promptStream(input, options).pipe(
         // TODO map to better log output
-        Stream.tap((_) => writeToLogFile(_)),
-        Stream.mapEffect(Schema.decode(Schema.parseJson(ClaudeCodeMessage))),
+        Stream.tap(writeToLogFile),
+        Stream.mapEffect((_) =>
+          Schema.decode(Schema.parseJson(ClaudeCodeMessage), { errors: 'all' })(_).pipe(
+            Effect.tapErrorCause((error) =>
+              Effect.logWarning(`Failed to parse Claude CLI JSON response. Continuing regardless...`, error),
+            ),
+            Effect.orElse(() => Schema.decode(Schema.parseJson(Schema.Any as Schema.Schema<ClaudeCodeMessage>))(_)),
+          ),
+        ),
+        // Stream.mapEffect(Schema.decode(Schema.parseJson(ClaudeCodeMessage), { errors: 'all' })),
         Stream.mapError(
           (cause) =>
             new LLMError({
@@ -141,28 +149,32 @@ const prompt = (
 const promptStream = (
   input: string,
   options: LLMOptions = {},
-): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor> => {
-  // Map LLM options to Claude-specific options
-  const model: ClaudeModel = options.useBestModel ? 'Opus' : 'Sonnet'
+): Stream.Stream<string, LLMError | PlatformError, CommandExecutor.CommandExecutor | FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    // Map LLM options to Claude-specific options
+    const model: ClaudeModel = options.useBestModel ? 'Opus' : 'Sonnet'
 
-  return Command.streamLines(
-    buildCommand(input, {
-      ...options,
-      model,
-      outputFormat: 'stream-json',
-    }),
-  ).pipe(
-    Stream.withSpan('claude.promptStream'),
-    Stream.mapError(
-      (cause) =>
-        new LLMError({
-          cause,
-          note: 'Failed to stream from Claude CLI',
-          prompt: input,
-        }),
-    ),
-  )
-}
+    const writeToLogFile = yield* getWriteToLogFile(options)
+
+    return Command.streamLines(
+      buildCommand(input, {
+        ...options,
+        model,
+        outputFormat: 'stream-json',
+      }),
+    ).pipe(
+      Stream.tap(writeToLogFile),
+      Stream.withSpan('claude.promptStream'),
+      Stream.mapError(
+        (cause) =>
+          new LLMError({
+            cause,
+            note: 'Failed to stream from Claude CLI',
+            prompt: input,
+          }),
+      ),
+    )
+  }).pipe(Stream.unwrapScoped)
 
 /**
  * Claude implementation of the LLM service
