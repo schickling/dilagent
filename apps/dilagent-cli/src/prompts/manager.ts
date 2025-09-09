@@ -11,13 +11,15 @@ CRITICAL: Use tools to investigate, but your final response must be ONLY valid J
 export const generateHypothesesFromReproductionPrompt = ({
   problemPrompt,
   resolvedContextDirectory,
+  contextRelativePath,
   reproduction,
   hypothesisCount,
 }: {
   problemPrompt: string
   resolvedContextDirectory: string
+  contextRelativePath: string | undefined
   reproduction: Extract<ReproductionResult, { _tag: 'Success' }>
-  hypothesisCount?: number
+  hypothesisCount: number | undefined
 }) => `\
 ## Context
 
@@ -29,7 +31,16 @@ ${problemPrompt}
 ${resolvedContextDirectory}
 </context-directory>
 
-<reproduction-results>
+${
+  contextRelativePath && contextRelativePath !== '.'
+    ? `<context-area>
+The bug was reproduced in the "${contextRelativePath}" subdirectory.
+Please focus your hypothesis generation on issues within this area, though you may reference other parts of the codebase if they directly relate to the problem.
+</context-area>
+
+`
+    : ''
+}<reproduction-results>
 Observed Behavior: ${reproduction.observedBehavior}
 Expected Behavior: ${reproduction.expectedBehavior}
 Confidence: ${(reproduction.confidence * 100).toFixed(1)}%

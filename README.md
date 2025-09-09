@@ -90,7 +90,7 @@ dilagent manager repro --working-directory ./debug-session --llm claude
 
 ### Stage 2: Generate Hypotheses
 ```bash
-dilagent manager generate-hypotheses --working-directory ./debug-session --count 3 --llm claude
+dilagent manager generate-hypotheses --working-directory ./debug-session --hypothesis-count 3 --llm claude
 ```
 - Creates numbered hypothesis directories: `H001-config-issue/`, `H002-race-condition/`, etc.
 - Each contains:
@@ -220,14 +220,14 @@ npm install -g dilagent
 dilagent manager all \
   --context-directory ./my-project \
   --working-directory ./debug-session \
-  --count 3 \
+  --hypothesis-count 3 \
   --llm claude
 
 # Key options:
 # --llm claude|codex - Choose AI model (Claude recommended)
 # --working-directory - Where dilagent stores its files
 # --context-directory - The codebase to debug
-# --count - Number of hypotheses to generate (default: 3)
+# --hypothesis-count - Number of hypotheses to generate (default: 3)
 # --flaky - Use this flag for intermittent/flaky issues
 # --repl - Start interactive mode for complex debugging
 ```
@@ -240,7 +240,7 @@ dilagent manager all \
 - Verify the issue occurs in the provided codebase
 
 **Issue: All hypotheses are inconclusive**
-- Try increasing `--count` to generate more hypotheses
+- Try increasing `--hypothesis-count` to generate more hypotheses
 - Add more context to `context.md` about recent changes
 - Use `--repl` mode for manual exploration
 

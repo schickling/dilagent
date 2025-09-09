@@ -63,7 +63,7 @@ export const promptOption = Cli.Options.text('prompt').pipe(
   Cli.Options.withDescription('Problem description (interactive if not provided)'),
 )
 
-export const countOption = Cli.Options.integer('count').pipe(
+export const hypothesisCountOption = Cli.Options.integer('hypothesis-count').pipe(
   Cli.Options.optional,
   Cli.Options.withDescription('Number of hypotheses to generate'),
 )
@@ -141,11 +141,13 @@ export const generateHypotheses = ({
       `Found existing reproduction (${typeLabel} ${reproduction.reproductionType}) - generating hypotheses from reproduction data with ${(reproduction.confidence * 100).toFixed(1)}% confidence`,
     )
 
+    const state = yield* stateStore.getState()
     const prompt = generateHypothesesFromReproductionPrompt({
       problemPrompt,
       resolvedContextDirectory: contextDir,
+      contextRelativePath: state.contextRelativePath,
       reproduction,
-      ...(hypothesisCount !== undefined && { hypothesisCount }),
+      hypothesisCount,
     })
 
     yield* fs.writeFileString(path.join(artifactsDir, GENERATE_HYPOTHESES_PROMPT_FILE), prompt)

@@ -8,7 +8,7 @@ import { runHypothesisWorkersCommand } from './run-hypotheses.ts'
 import { setupCommand } from './setup.ts'
 import {
   contextDirectoryOption,
-  countOption,
+  hypothesisCountOption,
   cwdOption,
   flakyOption,
   LOG_FILES,
@@ -45,7 +45,7 @@ export const allCommand = Cli.Command.make(
     contextDirectory: contextDirectoryOption,
     workingDirectory: workingDirectoryOption,
     prompt: promptOption,
-    count: countOption,
+    hypothesisCount: hypothesisCountOption,
     llm: llmOption,
     port: portOption,
     repl: replOption,
@@ -78,7 +78,7 @@ export const allCommand = Cli.Command.make(
       // Hypothesis Generation
       yield* generateHypothesesCommand.handler({
         workingDirectory: options.workingDirectory,
-        count: options.count,
+        hypothesisCount: options.hypothesisCount,
         llm: options.llm,
         cwd: options.cwd,
       })
