@@ -8,6 +8,7 @@ import {
   generateHypothesisIdeasPrompt,
   toolEnabledSystemPrompt,
 } from '../../prompts/manager.ts'
+import { createHypothesisEvent, createPhaseEvent } from '../../schemas/file-management.ts'
 import {
   GenerateHypothesesInputResult,
   type HypothesisInput,
@@ -19,7 +20,6 @@ import { LLMService } from '../../services/llm.ts'
 import { StateStore } from '../../services/state-store.ts'
 import { TimelineService } from '../../services/timeline.ts'
 import { WorkingDirService } from '../../services/working-dir.ts'
-import { createPhaseEvent, createHypothesisEvent } from '../../schemas/file-management.ts'
 import { parseJsonLlmResponse } from '../../utils/schema-utils.ts'
 import { hypothesisCommand } from '../hypothesis.ts'
 
@@ -30,7 +30,7 @@ export const CONTEXT_DIR = 'context'
 export const GENERATE_HYPOTHESES_PROMPT_FILE = 'generate-hypotheses.md'
 export const REPRODUCTION_FILE = 'reproduction.json'
 export const REPRODUCTION_SCRIPT_FILE = 'repro.ts'
-export const REPRODUCTION_LOG_FILE = 'reproduction.logDebug'
+export const REPRODUCTION_LOG_FILE = 'reproduction.log'
 
 // Reusable CLI option definitions
 export const workingDirectoryOption = Cli.Options.directory('working-directory').pipe(

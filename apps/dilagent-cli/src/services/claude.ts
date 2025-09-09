@@ -78,7 +78,15 @@ const prompt = (
       const last = yield* promptStream(input, options).pipe(
         // TODO map to better log output
         Stream.tap((_) => writeToLogFile(_)),
-        Stream.mapEffect(Schema.decode(Schema.parseJson(ClaudeCodeMessage), { errors: 'all' })),
+        Stream.mapEffect((_) =>
+          Schema.decode(Schema.parseJson(ClaudeCodeMessage), { errors: 'all' })(_).pipe(
+            Effect.tapErrorCause((error) =>
+              Effect.logWarning(`Failed to parse Claude CLI JSON response. Continuing regardless...`, error),
+            ),
+            Effect.orElse(() => Schema.decode(Schema.parseJson(Schema.Any as Schema.Schema<ClaudeCodeMessage>))(_)),
+          ),
+        ),
+        // Stream.mapEffect(Schema.decode(Schema.parseJson(ClaudeCodeMessage), { errors: 'all' })),
         Stream.mapError(
           (cause) =>
             new LLMError({

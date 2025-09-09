@@ -1,3 +1,14 @@
+/**
+ * Claude Code Protocol Message Schemas
+ *
+ * Unfortunately, no official source of truth exists for the Claude Code protocol message format.
+ * These schema definitions are reverse-engineered and must be incrementally adjusted as we
+ * encounter parsing errors in production. Each schema update is based on actual message
+ * formats observed from the Claude Code CLI.
+ *
+ * TODO: Replace with official schema definitions (e.g. JSON Schema) once available.
+ * Consider reaching out to the Claude Code community for help with complete protocol documentation.
+ */
 import { Schema } from 'effect'
 
 export const ToolName = Schema.Union(
@@ -82,7 +93,13 @@ export const ToolResultContent = Schema.Struct({
 
 export type ToolResultContent = typeof ToolResultContent.Type
 
-export const MessageContentBlock = Schema.Union(TextContent, ToolUseContent, ToolResultContent)
+export const ThinkingContent = Schema.Struct({
+  type: Schema.Literal('thinking'),
+})
+
+export type ThinkingContent = typeof ThinkingContent.Type
+
+export const MessageContentBlock = Schema.Union(TextContent, ToolUseContent, ToolResultContent, ThinkingContent)
 
 export type MessageContentBlock = typeof MessageContentBlock.Type
 
@@ -128,7 +145,7 @@ export const AssistantMessage = Schema.Struct({
   message: ClaudeMessage,
   parent_tool_use_id: Schema.NullOr(Schema.String),
   session_id: Schema.String,
-  uuid: Schema.String,
+  uuid: Schema.optional(Schema.String),
 })
 
 export type AssistantMessage = typeof AssistantMessage.Type
@@ -138,7 +155,7 @@ export const UserMessage = Schema.Struct({
   message: MessageContent,
   parent_tool_use_id: Schema.NullOr(Schema.String),
   session_id: Schema.String,
-  uuid: Schema.String,
+  uuid: Schema.optional(Schema.String),
 })
 
 export type UserMessage = typeof UserMessage.Type
@@ -162,8 +179,8 @@ export const ResultMessage = Schema.Struct({
   session_id: Schema.String,
   total_cost_usd: Schema.Number,
   usage: Usage,
-  permission_denials: Schema.Array(PermissionDenial),
-  uuid: Schema.String,
+  permission_denials: Schema.optional(Schema.Array(PermissionDenial)),
+  uuid: Schema.optional(Schema.String),
 })
 
 export type ResultMessage = typeof ResultMessage.Type
